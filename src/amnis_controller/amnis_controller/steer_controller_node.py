@@ -39,7 +39,7 @@ class SteerControllerNode(Node):
         self.declare_parameter('diagnostic_topic', 'steer_diagnostics')
         
         # Hardware configuration
-        self.declare_parameter('i2c_bus', 1)  # Jetson Orin typically uses bus 1 or 8
+        self.declare_parameter('i2c_bus', 1)  # Raspberry Pi typically uses bus 1
         self.declare_parameter('i2c_address', 0x58)  # H-bridge I2C address
         self.declare_parameter('max_power', 100)
         self.declare_parameter('mock_mode', False)  # For testing without hardware

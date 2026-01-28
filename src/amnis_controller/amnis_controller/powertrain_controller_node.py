@@ -16,7 +16,7 @@ from rclpy.time import Time
 from std_msgs.msg import String
 from amnis_controller.msg import PowertrainCommand
 
-from amnis_controller.drivers import PWMDriver
+from amnis_controller.drivers import PWMDriver, TransmissionDriver
 
 
 class PowertrainControllerNode(Node):
@@ -39,10 +39,15 @@ class PowertrainControllerNode(Node):
         self.declare_parameter('diagnostic_topic', 'powertrain_diagnostics')
         
         # Hardware configuration
-        self.declare_parameter('pwm_pin', 15)  # Physical pin number
+        self.declare_parameter('pwm_pin', 22)  # BCM GPIO 22 (physical pin 15)
         self.declare_parameter('pwm_frequency', 1000)  # 1kHz
         self.declare_parameter('max_throttle', 1.0)  # Maximum throttle (0.0-1.0)
         self.declare_parameter('mock_mode', False)  # For testing without hardware
+        
+        # Transmission relay configuration (gear control only)
+        self.declare_parameter('enable_transmission_control', True)
+        self.declare_parameter('disable_neutral_pin', 17)  # BCM GPIO 17
+        self.declare_parameter('enable_reverse_pin', 27)   # BCM GPIO 27
         
         # Safety parameters
         self.declare_parameter('command_timeout_sec', 0.5)  # Cut throttle if no command
@@ -63,6 +68,9 @@ class PowertrainControllerNode(Node):
         pwm_frequency = self.get_parameter('pwm_frequency').value
         max_throttle = self.get_parameter('max_throttle').value
         mock_mode = self.get_parameter('mock_mode').value
+        enable_transmission_control = self.get_parameter('enable_transmission_control').value
+        disable_neutral_pin = self.get_parameter('disable_neutral_pin').value
+        enable_reverse_pin = self.get_parameter('enable_reverse_pin').value
         self.command_timeout = self.get_parameter('command_timeout_sec').value
         self.deadzone = self.get_parameter('deadzone').value
         update_rate = self.get_parameter('update_rate_hz').value
@@ -82,6 +90,27 @@ class PowertrainControllerNode(Node):
             self.get_logger().error(
                 "Failed to initialize PWM driver! Running in degraded mode."
             )
+        
+        # Initialize transmission driver
+        self.enable_transmission_control = enable_transmission_control
+        self.transmission_driver = None
+        
+        if enable_transmission_control:
+            # Note: external_mode_pin is not used by this node
+            # It's controlled by vehicle_controller_node based on vehicle state
+            self.transmission_driver = TransmissionDriver(
+                disable_neutral_pin=disable_neutral_pin,
+                enable_reverse_pin=enable_reverse_pin,
+                external_mode_pin=0,  # Dummy pin, not used by this node
+                mock_mode=mock_mode
+            )
+            
+            if not self.transmission_driver.is_connected():
+                self.get_logger().error(
+                    "Failed to initialize transmission driver! Running in degraded mode."
+                )
+            else:
+                self.get_logger().info("Transmission control enabled")
         
         # State tracking
         self._last_command: PowertrainCommand | None = None
@@ -128,6 +157,7 @@ class PowertrainControllerNode(Node):
                 f"topic={input_topic}, "
                 f"pwm_pin={pwm_pin}, "
                 f"pwm_frequency={pwm_frequency}Hz, "
+                f"transmission_control={enable_transmission_control}, "
                 f"mock={mock_mode}"
             )
     
@@ -157,7 +187,14 @@ class PowertrainControllerNode(Node):
         if success:
             self._current_throttle = throttle
         
-        # Store gear (not used yet, but track it)
+        # Handle gear command via transmission driver
+        if self.enable_transmission_control and self.transmission_driver is not None:
+            if self._current_gear != msg.gear:
+                gear_success = self.transmission_driver.set_gear(msg.gear)
+                if not gear_success:
+                    self.get_logger().warning(f"Failed to set gear to {msg.gear}")
+        
+        # Store gear
         self._current_gear = msg.gear
     
     def update_callback(self) -> None:
@@ -176,8 +213,13 @@ class PowertrainControllerNode(Node):
         if self.verbose:
             now = self.get_clock().now()
             if (now - self.last_log_time).nanoseconds / 1e9 >= self.log_throttle:
+                trans_info = ""
+                if self.enable_transmission_control and self.transmission_driver is not None:
+                    actual_gear = self.transmission_driver.get_current_gear()
+                    trans_info = f", actual_gear={actual_gear}"
+                
                 self.get_logger().info(
-                    f"Powertrain: throttle={throttle:.3f}, gear={gear} | "
+                    f"Powertrain: throttle={throttle:.3f}, gear={gear}{trans_info} | "
                     f"Connected: {self.driver.is_connected()} | "
                     f"Errors: {self.driver.get_error_count()}"
                 )
@@ -211,13 +253,25 @@ class PowertrainControllerNode(Node):
             gear: Current gear (-1, 0, 1)
         """
         msg = String()
-        msg.data = (
+        diag_data = (
             f"throttle={throttle:.3f}, "
             f"gear={gear}, "
             f"connected={self.driver.is_connected()}, "
             f"errors={self.driver.get_error_count()}, "
             f"timed_out={self._is_timed_out}"
         )
+        
+        if self.enable_transmission_control and self.transmission_driver is not None:
+            actual_gear = self.transmission_driver.get_current_gear()
+            trans_connected = self.transmission_driver.is_connected()
+            trans_errors = self.transmission_driver.get_error_count()
+            diag_data += (
+                f", actual_gear={actual_gear}, "
+                f"trans_connected={trans_connected}, "
+                f"trans_errors={trans_errors}"
+            )
+        
+        msg.data = diag_data
         self.diagnostic_pub.publish(msg)
     
     def destroy_node(self) -> bool:
@@ -230,6 +284,12 @@ class PowertrainControllerNode(Node):
         
         # Cut throttle before shutdown
         self.driver.stop()
+        
+        # Force transmission to neutral before shutdown
+        if self.enable_transmission_control and self.transmission_driver is not None:
+            self.get_logger().info("Forcing transmission to neutral...")
+            self.transmission_driver.emergency_neutral()
+            self.transmission_driver.close()
         
         # Close hardware connection
         self.driver.close()

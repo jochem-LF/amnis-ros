@@ -18,6 +18,7 @@ import rclpy
 from rclpy.node import Node
 
 from amnis_controller.msg import JoystickCommand, PowertrainCommand, SteerCommand, BrakeCommand
+from amnis_controller.drivers import TransmissionDriver
 
 
 class VehicleState(Enum):
@@ -53,6 +54,11 @@ class VehicleControllerNode(Node):
         self.declare_parameter('safety_button', False)
         self.declare_parameter('mode_button', False)
         
+        # External mode relay configuration
+        self.declare_parameter('enable_external_mode_control', True)
+        self.declare_parameter('external_mode_pin', 23)  # BCM GPIO 23
+        self.declare_parameter('mock_mode', False)
+        
         # Log throttling
         self.declare_parameter('log_throttle_sec', 0.5)
         self.declare_parameter('verbose', True)  # Enable/disable info logging
@@ -63,11 +69,38 @@ class VehicleControllerNode(Node):
         self._steer_topic = self.get_parameter('steer_topic').value
         self._brake_topic = self.get_parameter('brake_topic').value
         queue_size = int(self.get_parameter('queue_size').value)
+        enable_external_mode_control = self.get_parameter('enable_external_mode_control').value
+        external_mode_pin = self.get_parameter('external_mode_pin').value
+        mock_mode = self.get_parameter('mock_mode').value
         self._log_throttle_sec = max(float(self.get_parameter('log_throttle_sec').value), 0.0)
         self.verbose = self.get_parameter('verbose').value
 
         # Initialize state machine to MANUAL state
         self._current_state: VehicleState = VehicleState.MANUAL
+        
+        # Initialize transmission driver for external mode relay control
+        self.enable_external_mode_control = enable_external_mode_control
+        self.transmission_driver = None
+        
+        if enable_external_mode_control:
+            # We only need the external mode pin, but TransmissionDriver requires all pins
+            # The other pins won't be used by this node (they're controlled by powertrain controller)
+            self.transmission_driver = TransmissionDriver(
+                disable_neutral_pin=17,  # Not used by this node
+                enable_reverse_pin=27,   # Not used by this node
+                external_mode_pin=external_mode_pin,
+                mock_mode=mock_mode
+            )
+            
+            if not self.transmission_driver.is_connected():
+                self.get_logger().error(
+                    "Failed to initialize transmission driver for external mode! "
+                    "Running in degraded mode."
+                )
+            else:
+                # Ensure external mode is off at startup (MANUAL state)
+                self.transmission_driver.set_external_mode(False)
+                self.get_logger().info("External mode relay control enabled")
         
         # Store the last received joystick command
         self._last_joystick_cmd: Optional[JoystickCommand] = None
@@ -157,6 +190,15 @@ class VehicleControllerNode(Node):
                     f"State transition: {previous_state.name} → {self._current_state.name} "
                     f"(safety={safety_button}, mode={mode_button})"
                 )
+            
+            # Update external mode relay when transitioning to/from EXTERNAL state
+            if self.enable_external_mode_control and self.transmission_driver is not None:
+                external_mode = (self._current_state == VehicleState.EXTERNAL)
+                success = self.transmission_driver.set_external_mode(external_mode)
+                if not success:
+                    self.get_logger().warning(
+                        f"Failed to set external mode relay to {external_mode}"
+                    )
 
     def _process_command(self, joystick_cmd: JoystickCommand) -> tuple[PowertrainCommand, SteerCommand, BrakeCommand]:
         """Process the joystick command based on the current state.
@@ -241,6 +283,12 @@ class VehicleControllerNode(Node):
 
     def destroy_node(self) -> bool:
         """Clean up resources when the node shuts down."""
+        # Disable external mode relay before shutdown
+        if self.enable_external_mode_control and self.transmission_driver is not None:
+            self.get_logger().info("Disabling external mode relay...")
+            self.transmission_driver.set_external_mode(False)
+            self.transmission_driver.close()
+        
         if getattr(self, '_subscription', None) is not None:
             self.destroy_subscription(self._subscription)
             self._subscription = None

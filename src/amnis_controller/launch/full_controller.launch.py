@@ -13,12 +13,29 @@ This launch file starts:
 import os
 from pathlib import Path
 from launch import LaunchDescription
-from launch.actions import ExecuteProcess
+from launch.actions import ExecuteProcess, SetEnvironmentVariable
 from launch_ros.actions import Node
 
 
 def generate_launch_description():
     """Generate launch description with joystick, controller, and steer nodes."""
+    
+    # Set pigpio connection parameters once for all nodes
+    # These environment variables configure the singleton connection to the remote Raspberry Pi
+    pigpio_host_env = SetEnvironmentVariable(
+        'PIGPIO_HOST',
+        '192.168.10.2'  # Change to your Raspberry Pi's IP address (e.g., '192.168.1.100')
+    )
+    
+    pigpio_port_env = SetEnvironmentVariable(
+        'PIGPIO_PORT',
+        '8888'  # Default pigpiod port
+    )
+    
+    pigpio_mock_env = SetEnvironmentVariable(
+        'PIGPIO_MOCK_MODE',
+        'false'  # Set to 'true' for testing without hardware
+    )
     
     # game_controller_node - reads from joystick hardware
     game_controller_node = Node(
@@ -62,12 +79,16 @@ def generate_launch_description():
             'brake_topic': 'brake_command',
             'safety_button': False,  # Simulated - will be hardware later
             'mode_button': True,    # Simulated - will be hardware later
+            # External mode relay configuration (remote GPIO via pigpio)
+            'enable_external_mode_control': True,
+            'external_mode_pin': 4,        # BCM GPIO 4 (physical pin 7)
+            'mock_mode': False,             # Set True for testing without hardware
             'log_throttle_sec': 0.5,
             'verbose': False,  # Set to True to enable debug logging for this node
         }]
     )
     
-    # Steer controller node - controls H-bridge via I2C
+    # Steer controller node - controls H-bridge via remote I2C (pigpio)
     steer_controller_node = Node(
         package='amnis_controller',
         executable='steer_controller_node',
@@ -76,7 +97,7 @@ def generate_launch_description():
         parameters=[{
             'input_topic': 'steer_command',
             'diagnostic_topic': 'steer_diagnostics',
-            'i2c_bus': 7,                    # Jetson Orin I2C bus
+            'i2c_bus': 1,                    # I2C bus on Raspberry Pi (typically bus 1)
             'i2c_address': 0x58,             # H-bridge I2C address
             'max_power': 100,                # Maximum speed percentage
             'mock_mode': False,              # Set True for testing without hardware
@@ -112,7 +133,7 @@ def generate_launch_description():
         }]
     )
     
-    # Powertrain controller node - controls throttle via PWM
+    # Powertrain controller node - controls throttle via PWM and transmission via relays
     powertrain_controller_node = Node(
         package='amnis_controller',
         executable='powertrain_controller_node',
@@ -121,9 +142,16 @@ def generate_launch_description():
         parameters=[{
             'input_topic': 'powertrain_command',
             'diagnostic_topic': 'powertrain_diagnostics',
-            'pwm_pin': 15,                   # GPIO pin for PWM (physical pin numbering)
+            # PWM throttle configuration (remote GPIO via pigpio)
+            'pwm_pin': 22,                   # BCM GPIO 22 (physical pin 15)
             'pwm_frequency': 1000,           # PWM frequency in Hz
             'max_throttle': 1.0,             # Maximum throttle (0.0-1.0, set lower for testing)
+            # Transmission relay configuration (gear control - remote GPIO via pigpio)
+            # Note: external_mode_pin is configured in vehicle_controller_node
+            'enable_transmission_control': True,
+            'disable_neutral_pin': 12,       # BCM GPIO 12 (physical pin 32)
+            'enable_reverse_pin': 5,        # BCM GPIO 5 (physical pin 29)
+            # General configuration
             'mock_mode': False,              # Set True for testing without hardware
             'command_timeout_sec': 0.5,
             'deadzone': 0.01,
@@ -163,6 +191,11 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        # Set environment variables first (for pigpio connection)
+        pigpio_host_env,
+        pigpio_port_env,
+        pigpio_mock_env,
+        # Then launch all nodes
         game_controller_node,
         joystick_node,
         controller_node,
