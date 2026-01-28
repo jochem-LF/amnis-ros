@@ -3,12 +3,13 @@
 This launch file starts:
 0. joy_node - Publishes raw joystick data from hardware device
 1. joystick_normalizer_node - Normalizes joystick inputs
-2. vehicle_controller_node - Manages vehicle state machine and command filtering
-3. steer_controller_node - Controls steering motor via I2C H-bridge
-4. brake_controller_node - Controls EHB brake system via CAN bus
-5. powertrain_controller_node - Controls throttle via PWM on GPIO
-6. topic_aggregator_node - Bridges ROS topics to a WebSocket frontend
-7. Firefox browser - Opens dashboard in fullscreen/kiosk mode
+2. sensor_input_node - Reads gas pedal and steering wheel from ADC
+3. vehicle_controller_node - Manages vehicle state machine and command filtering
+4. steer_controller_node - Controls steering motor via I2C H-bridge
+5. brake_controller_node - Controls EHB brake system via CAN bus
+6. powertrain_controller_node - Controls throttle via PWM on GPIO
+7. topic_aggregator_node - Bridges ROS topics to a WebSocket frontend
+8. Firefox browser - Opens dashboard in fullscreen/kiosk mode
 """
 import os
 from pathlib import Path
@@ -46,6 +47,39 @@ def generate_launch_description():
             'deadzone': 0.05,
             'log_throttle_sec': 0.5,
             'verbose': True,  # Set to True to enable debug logging for this node
+        }]
+    )
+    
+    # Sensor input node - reads gas pedal and steering wheel from ADC
+    sensor_input_node = Node(
+        package='amnis_controller',
+        executable='sensor_input_node',
+        name='sensor_input',
+        output='screen',
+        parameters=[{
+            # ADC configuration
+            'adc_i2c_bus': 1,
+            'adc_i2c_address': 0x48,  # ADDR pin to GND
+            # Channel assignment
+            'gas_pedal_channel': 0,   # AIN0
+            'steering_channel': 1,     # AIN1
+            # Calibration parameters - MUST BE CALIBRATED!
+            # Run the node in verbose mode and measure actual voltage ranges
+            'gas_min_voltage': 0.5,    # TODO: Calibrate - voltage when pedal is not pressed
+            'gas_max_voltage': 3.0,    # TODO: Calibrate - voltage when pedal is fully pressed
+            'steer_min_voltage': 0.3,  # TODO: Calibrate - voltage at full left
+            'steer_max_voltage': 3.2,  # TODO: Calibrate - voltage at full right
+            # Operational parameters
+            'update_rate_hz': 20.0,
+            'pigpio_host': '192.168.10.2',
+            'pigpio_port': 8888,
+            'mock_mode': False,
+            # Logging
+            'log_throttle_sec': 1.0,
+            'verbose': True,
+            # Topic names
+            'gas_pedal_topic': '/sensor/gas_pedal',
+            'steering_topic': '/sensor/steering_wheel',
         }]
     )
     
@@ -183,6 +217,7 @@ def generate_launch_description():
     return LaunchDescription([
         game_controller_node,
         joystick_node,
+        sensor_input_node,
         controller_node,
         steer_controller_node,
         brake_controller_node,
