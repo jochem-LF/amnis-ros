@@ -9,7 +9,7 @@ Compatible with any system that can connect to a pigpiod daemon over network.
 
 from typing import Optional
 import logging
-from . import pigpio_connection
+from .pigpio_connection import PigpioConnection
 
 
 class PWMDriver:
@@ -39,6 +39,8 @@ class PWMDriver:
         pwm_frequency: int = DEFAULT_PWM_FREQUENCY,
         max_throttle: float = 1.0,
         mock_mode: bool = False,
+        pigpio_host: Optional[str] = None,
+        pigpio_port: Optional[int] = None,
     ):
         """Initialize the PWM driver.
         
@@ -47,31 +49,29 @@ class PWMDriver:
             pwm_frequency: PWM frequency in Hz (default 1kHz)
             max_throttle: Maximum throttle value 0.0-1.0 (default 1.0 = 100%)
             mock_mode: If True, simulate GPIO without actual hardware
-            
-        Note:
-            Connection to pigpiod is configured via environment variables:
-            - PIGPIO_HOST: Remote Raspberry Pi address (default: localhost)
-            - PIGPIO_PORT: pigpiod port (default: 8888)
-            - PIGPIO_MOCK_MODE: Set to 'true' for mock mode (default: false)
+            pigpio_host: IP address/hostname of remote Raspberry Pi (optional)
+            pigpio_port: pigpiod port (optional, default 8888)
         """
         self.pwm_pin = pwm_pin
         self.pwm_frequency = pwm_frequency
         self.max_throttle = max(0.0, min(1.0, max_throttle))  # Clamp to [0, 1]
         self.mock_mode = mock_mode
         
+        self._pigpio_conn = PigpioConnection()
         self._pi = None
         self._connected = False
         self._last_throttle = 0.0
         self._error_count = 0
         
-        # Get connection config from environment
-        self._host, self._port, env_mock = pigpio_connection.get_config()
-        # Local mock_mode overrides environment
-        if mock_mode:
-            env_mock = True
-        self.mock_mode = env_mock
-        
         self.logger = logging.getLogger('PWMDriver')
+        
+        # Configure pigpio connection
+        if pigpio_host is not None or pigpio_port is not None or mock_mode:
+            self._pigpio_conn.configure(
+                host=pigpio_host,
+                port=pigpio_port,
+                mock_mode=mock_mode
+            )
         
         # Try to initialize GPIO
         self._initialize_gpio()
@@ -82,25 +82,21 @@ class PWMDriver:
         Returns:
             True if successful, False otherwise
         """
-        if self.mock_mode:
+        if self.mock_mode or self._pigpio_conn.is_mock_mode():
             self.logger.info("Running in MOCK mode - no actual GPIO communication")
             self._connected = True
             return True
         
         try:
-            # Import pigpio and connect directly
-            import pigpio
-            
-            self.logger.info(f"Connecting to pigpiod at {self._host}:{self._port}...")
-            self._pi = pigpio.pi(self._host, self._port)
-            
-            if not self._pi.connected:
-                self.logger.error(
-                    f"Failed to connect to pigpiod at {self._host}:{self._port}. "
-                    "Make sure pigpiod is running: sudo pigpiod"
-                )
+            # Get pigpio connection
+            self._pi = self._pigpio_conn.get_pi()
+            if self._pi is None:
+                self.logger.error("Failed to get pigpio connection")
                 self._connected = False
                 return False
+            
+            # Import pigpio for constants
+            import pigpio
             
             # Set pin as output
             self._pi.set_mode(self.pwm_pin, pigpio.OUTPUT)
@@ -118,7 +114,7 @@ class PWMDriver:
             self._connected = True
             self.logger.info(
                 f"Remote GPIO PWM initialized: BCM GPIO {self.pwm_pin}, "
-                f"frequency={actual_freq}Hz, host={self._host}:{self._port}"
+                f"frequency={actual_freq}Hz, host={self._pigpio_conn.get_host()}"
             )
             return True
             
@@ -131,6 +127,7 @@ class PWMDriver:
         except Exception as e:
             self.logger.error(f"Failed to initialize remote GPIO: {e}")
             self._connected = False
+            self._pigpio_conn.increment_error_count()
             return False
     
     def is_connected(self) -> bool:
@@ -139,10 +136,10 @@ class PWMDriver:
         Returns:
             True if connected, False otherwise
         """
-        if self.mock_mode:
+        if self.mock_mode or self._pigpio_conn.is_mock_mode():
             return self._connected
         
-        return self._connected and self._pi is not None and self._pi.connected
+        return self._connected and self._pigpio_conn.is_connected()
     
     def set_throttle(self, throttle: float) -> bool:
         """Set throttle value.
@@ -184,19 +181,23 @@ class PWMDriver:
         Returns:
             True if successful, False otherwise
         """
-        if self.mock_mode:
+        if self.mock_mode or self._pigpio_conn.is_mock_mode():
             self.logger.debug(f"MOCK: Setting PWM duty cycle to {duty_cycle:.1f}%")
             return True
         
         if not self._connected:
-            self.logger.error("GPIO not connected. Please restart the node.")
-            return False
+            self.logger.warning("GPIO not connected, attempting to reconnect...")
+            self._initialize_gpio()
+            if not self._connected:
+                return False
         
         try:
-            # Check if connection is still valid
-            if self._pi is None or not self._pi.connected:
-                self.logger.error("Lost pigpio connection. Please restart the node.")
+            # Ensure we have a valid connection
+            self._pi = self._pigpio_conn.get_pi()
+            if self._pi is None:
+                self.logger.error("Lost pigpio connection")
                 self._connected = False
+                self._pigpio_conn.increment_error_count()
                 return False
             
             # Convert percentage (0-100) to pigpio duty cycle (0-255)
@@ -210,6 +211,7 @@ class PWMDriver:
         except Exception as e:
             self.logger.error(f"Failed to set PWM duty cycle: {e}")
             self._connected = False
+            self._pigpio_conn.increment_error_count()
             return False
     
     def stop(self) -> bool:
@@ -253,14 +255,14 @@ class PWMDriver:
             # Send final stop command
             self.set_throttle(0.0)
             
-            # Set pin to low state and disconnect
-            if not self.mock_mode and self._pi is not None:
-                try:
-                    self._pi.set_PWM_dutycycle(self.pwm_pin, 0)
-                    self._pi.stop()
-                    self.logger.info("PWM stopped and disconnected")
-                except Exception as e:
-                    self.logger.error(f"Error stopping PWM: {e}")
+            # Set pin to low state
+            if not self.mock_mode and not self._pigpio_conn.is_mock_mode():
+                if self._pi is not None:
+                    try:
+                        self._pi.set_PWM_dutycycle(self.pwm_pin, 0)
+                        self.logger.info("PWM stopped")
+                    except Exception as e:
+                        self.logger.error(f"Error stopping PWM: {e}")
                     
         except Exception as e:
             self.logger.error(f"Error during cleanup: {e}")

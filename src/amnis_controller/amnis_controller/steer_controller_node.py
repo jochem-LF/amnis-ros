@@ -44,6 +44,10 @@ class SteerControllerNode(Node):
         self.declare_parameter('max_power', 100)
         self.declare_parameter('mock_mode', False)  # For testing without hardware
         
+        # Pigpio connection configuration (for remote Raspberry Pi)
+        self.declare_parameter('pigpio_host', 'localhost')
+        self.declare_parameter('pigpio_port', 8888)
+        
         # Safety parameters
         self.declare_parameter('command_timeout_sec', 0.5)  # Stop if no command
         self.declare_parameter('deadzone', 0.05)  # Ignore small commands
@@ -64,6 +68,8 @@ class SteerControllerNode(Node):
         i2c_address = self.get_parameter('i2c_address').value
         max_power = self.get_parameter('max_power').value
         mock_mode = self.get_parameter('mock_mode').value
+        pigpio_host = self.get_parameter('pigpio_host').value
+        pigpio_port = self.get_parameter('pigpio_port').value
         self.command_timeout = self.get_parameter('command_timeout_sec').value
         self.deadzone = self.get_parameter('deadzone').value
         update_rate = self.get_parameter('update_rate_hz').value
@@ -77,7 +83,9 @@ class SteerControllerNode(Node):
             i2c_bus=i2c_bus,
             i2c_address=i2c_address,
             max_power=max_power,
-            mock_mode=mock_mode
+            mock_mode=mock_mode,
+            pigpio_host=pigpio_host,
+            pigpio_port=pigpio_port
         )
         
         if not self.driver.is_connected():

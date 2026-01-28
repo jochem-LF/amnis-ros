@@ -44,10 +44,15 @@ class PowertrainControllerNode(Node):
         self.declare_parameter('max_throttle', 1.0)  # Maximum throttle (0.0-1.0)
         self.declare_parameter('mock_mode', False)  # For testing without hardware
         
-        # Transmission relay configuration (gear control only)
+        # Pigpio connection configuration (for remote Raspberry Pi)
+        self.declare_parameter('pigpio_host', 'localhost')
+        self.declare_parameter('pigpio_port', 8888)
+        
+        # Transmission relay configuration
         self.declare_parameter('enable_transmission_control', True)
         self.declare_parameter('disable_neutral_pin', 17)  # BCM GPIO 17
         self.declare_parameter('enable_reverse_pin', 27)   # BCM GPIO 27
+        self.declare_parameter('external_mode_pin', 23)    # BCM GPIO 23
         
         # Safety parameters
         self.declare_parameter('command_timeout_sec', 0.5)  # Cut throttle if no command
@@ -68,9 +73,12 @@ class PowertrainControllerNode(Node):
         pwm_frequency = self.get_parameter('pwm_frequency').value
         max_throttle = self.get_parameter('max_throttle').value
         mock_mode = self.get_parameter('mock_mode').value
+        pigpio_host = self.get_parameter('pigpio_host').value
+        pigpio_port = self.get_parameter('pigpio_port').value
         enable_transmission_control = self.get_parameter('enable_transmission_control').value
         disable_neutral_pin = self.get_parameter('disable_neutral_pin').value
         enable_reverse_pin = self.get_parameter('enable_reverse_pin').value
+        external_mode_pin = self.get_parameter('external_mode_pin').value
         self.command_timeout = self.get_parameter('command_timeout_sec').value
         self.deadzone = self.get_parameter('deadzone').value
         update_rate = self.get_parameter('update_rate_hz').value
@@ -83,7 +91,9 @@ class PowertrainControllerNode(Node):
             pwm_pin=pwm_pin,
             pwm_frequency=pwm_frequency,
             max_throttle=max_throttle,
-            mock_mode=mock_mode
+            mock_mode=mock_mode,
+            pigpio_host=pigpio_host,
+            pigpio_port=pigpio_port
         )
         
         if not self.driver.is_connected():
@@ -96,13 +106,13 @@ class PowertrainControllerNode(Node):
         self.transmission_driver = None
         
         if enable_transmission_control:
-            # Note: external_mode_pin is not used by this node
-            # It's controlled by vehicle_controller_node based on vehicle state
             self.transmission_driver = TransmissionDriver(
                 disable_neutral_pin=disable_neutral_pin,
                 enable_reverse_pin=enable_reverse_pin,
-                external_mode_pin=0,  # Dummy pin, not used by this node
-                mock_mode=mock_mode
+                external_mode_pin=external_mode_pin,
+                mock_mode=mock_mode,
+                pigpio_host=pigpio_host,
+                pigpio_port=pigpio_port
             )
             
             if not self.transmission_driver.is_connected():
@@ -158,6 +168,7 @@ class PowertrainControllerNode(Node):
                 f"pwm_pin={pwm_pin}, "
                 f"pwm_frequency={pwm_frequency}Hz, "
                 f"transmission_control={enable_transmission_control}, "
+                f"pigpio_host={pigpio_host}, "
                 f"mock={mock_mode}"
             )
     

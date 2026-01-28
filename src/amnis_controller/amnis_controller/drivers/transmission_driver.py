@@ -13,7 +13,7 @@ Transmission Logic:
 
 from typing import Optional
 import logging
-from . import pigpio_connection
+from .pigpio_connection import PigpioConnection
 
 
 class TransmissionDriver:
@@ -50,6 +50,8 @@ class TransmissionDriver:
         enable_reverse_pin: int = DEFAULT_ENABLE_REVERSE_PIN,
         external_mode_pin: int = DEFAULT_EXTERNAL_MODE_PIN,
         mock_mode: bool = False,
+        pigpio_host: Optional[str] = None,
+        pigpio_port: Optional[int] = None,
     ):
         """Initialize the transmission driver.
         
@@ -58,32 +60,30 @@ class TransmissionDriver:
             enable_reverse_pin: GPIO pin for reverse enable relay (BCM numbering)
             external_mode_pin: GPIO pin for external mode relay (BCM numbering)
             mock_mode: If True, simulate GPIO without actual hardware
-            
-        Note:
-            Connection to pigpiod is configured via environment variables:
-            - PIGPIO_HOST: Remote Raspberry Pi address (default: localhost)
-            - PIGPIO_PORT: pigpiod port (default: 8888)
-            - PIGPIO_MOCK_MODE: Set to 'true' for mock mode (default: false)
+            pigpio_host: IP address/hostname of remote Raspberry Pi (optional)
+            pigpio_port: pigpiod port (optional, default 8888)
         """
         self.disable_neutral_pin = disable_neutral_pin
         self.enable_reverse_pin = enable_reverse_pin
         self.external_mode_pin = external_mode_pin
         self.mock_mode = mock_mode
         
+        self._pigpio_conn = PigpioConnection()
         self._pi = None
         self._connected = False
         self._current_gear = self.GEAR_NEUTRAL
         self._external_mode = False
         self._error_count = 0
         
-        # Get connection config from environment
-        self._host, self._port, env_mock = pigpio_connection.get_config()
-        # Local mock_mode overrides environment
-        if mock_mode:
-            env_mock = True
-        self.mock_mode = env_mock
-        
         self.logger = logging.getLogger('TransmissionDriver')
+        
+        # Configure pigpio connection
+        if pigpio_host is not None or pigpio_port is not None or mock_mode:
+            self._pigpio_conn.configure(
+                host=pigpio_host,
+                port=pigpio_port,
+                mock_mode=mock_mode
+            )
         
         # Try to initialize GPIO
         self._initialize_gpio()
@@ -94,25 +94,21 @@ class TransmissionDriver:
         Returns:
             True if successful, False otherwise
         """
-        if self.mock_mode:
+        if self.mock_mode or self._pigpio_conn.is_mock_mode():
             self.logger.info("Running in MOCK mode - no actual GPIO communication")
             self._connected = True
             return True
         
         try:
-            # Import pigpio and connect directly
-            import pigpio
-            
-            self.logger.info(f"Connecting to pigpiod at {self._host}:{self._port}...")
-            self._pi = pigpio.pi(self._host, self._port)
-            
-            if not self._pi.connected:
-                self.logger.error(
-                    f"Failed to connect to pigpiod at {self._host}:{self._port}. "
-                    "Make sure pigpiod is running: sudo pigpiod"
-                )
+            # Get pigpio connection
+            self._pi = self._pigpio_conn.get_pi()
+            if self._pi is None:
+                self.logger.error("Failed to get pigpio connection")
                 self._connected = False
                 return False
+            
+            # Import pigpio for constants
+            import pigpio
             
             # Set all pins as outputs
             self._pi.set_mode(self.disable_neutral_pin, pigpio.OUTPUT)
@@ -135,7 +131,7 @@ class TransmissionDriver:
                 f"disable_neutral={self.disable_neutral_pin}, "
                 f"enable_reverse={self.enable_reverse_pin}, "
                 f"external_mode={self.external_mode_pin} (BCM), "
-                f"host={self._host}:{self._port}"
+                f"host={self._pigpio_conn.get_host()}"
             )
             return True
             
@@ -148,6 +144,7 @@ class TransmissionDriver:
         except Exception as e:
             self.logger.error(f"Failed to initialize remote GPIO: {e}")
             self._connected = False
+            self._pigpio_conn.increment_error_count()
             return False
     
     def is_connected(self) -> bool:
@@ -156,10 +153,10 @@ class TransmissionDriver:
         Returns:
             True if connected, False otherwise
         """
-        if self.mock_mode:
+        if self.mock_mode or self._pigpio_conn.is_mock_mode():
             return self._connected
         
-        return self._connected and self._pi is not None and self._pi.connected
+        return self._connected and self._pigpio_conn.is_connected()
     
     def _set_gpio_state(
         self,
@@ -177,7 +174,7 @@ class TransmissionDriver:
         Returns:
             True if successful, False otherwise
         """
-        if self.mock_mode:
+        if self.mock_mode or self._pigpio_conn.is_mock_mode():
             ext_str = f", external_mode={external_mode}" if external_mode is not None else ""
             self.logger.debug(
                 f"MOCK: Setting relays: disable_neutral={disable_neutral}, "
@@ -186,14 +183,18 @@ class TransmissionDriver:
             return True
         
         if not self._connected:
-            self.logger.error("GPIO not connected. Please restart the node.")
-            return False
+            self.logger.warning("GPIO not connected, attempting to reconnect...")
+            self._initialize_gpio()
+            if not self._connected:
+                return False
         
         try:
-            # Check if connection is still valid
-            if self._pi is None or not self._pi.connected:
-                self.logger.error("Lost pigpio connection. Please restart the node.")
+            # Ensure we have a valid connection
+            self._pi = self._pigpio_conn.get_pi()
+            if self._pi is None:
+                self.logger.error("Lost pigpio connection")
                 self._connected = False
+                self._pigpio_conn.increment_error_count()
                 return False
             
             # Set relay states (True=HIGH=1, False=LOW=0)
@@ -214,6 +215,7 @@ class TransmissionDriver:
         except Exception as e:
             self.logger.error(f"Failed to set GPIO state: {e}")
             self._connected = False
+            self._pigpio_conn.increment_error_count()
             return False
     
     def set_gear(self, gear: int) -> bool:
@@ -273,20 +275,24 @@ class TransmissionDriver:
         Returns:
             True if successful, False otherwise
         """
-        if self.mock_mode:
+        if self.mock_mode or self._pigpio_conn.is_mock_mode():
             self.logger.debug(f"MOCK: Setting external mode to {enabled}")
             self._external_mode = enabled
             return True
         
         if not self._connected:
-            self.logger.error("GPIO not connected. Please restart the node.")
-            return False
+            self.logger.warning("GPIO not connected, attempting to reconnect...")
+            self._initialize_gpio()
+            if not self._connected:
+                return False
         
         try:
-            # Check if connection is still valid
-            if self._pi is None or not self._pi.connected:
-                self.logger.error("Lost pigpio connection. Please restart the node.")
+            # Ensure we have a valid connection
+            self._pi = self._pigpio_conn.get_pi()
+            if self._pi is None:
+                self.logger.error("Lost pigpio connection")
                 self._connected = False
+                self._pigpio_conn.increment_error_count()
                 return False
             
             # Set external mode relay
@@ -300,6 +306,7 @@ class TransmissionDriver:
         except Exception as e:
             self.logger.error(f"Failed to set external mode: {e}")
             self._connected = False
+            self._pigpio_conn.increment_error_count()
             return False
     
     def emergency_neutral(self) -> bool:
@@ -353,16 +360,16 @@ class TransmissionDriver:
             self.emergency_neutral()
             self.set_external_mode(False)
             
-            # Set all pins to LOW and disconnect
-            if not self.mock_mode and self._pi is not None:
-                try:
-                    self._pi.write(self.disable_neutral_pin, 0)
-                    self._pi.write(self.enable_reverse_pin, 0)
-                    self._pi.write(self.external_mode_pin, 0)
-                    self._pi.stop()
-                    self.logger.info("All transmission relays set to LOW and disconnected")
-                except Exception as e:
-                    self.logger.error(f"Error during cleanup: {e}")
+            # Set all pins to LOW
+            if not self.mock_mode and not self._pigpio_conn.is_mock_mode():
+                if self._pi is not None:
+                    try:
+                        self._pi.write(self.disable_neutral_pin, 0)
+                        self._pi.write(self.enable_reverse_pin, 0)
+                        self._pi.write(self.external_mode_pin, 0)
+                        self.logger.info("All transmission relays set to LOW")
+                    except Exception as e:
+                        self.logger.error(f"Error setting pins to LOW: {e}")
                     
         except Exception as e:
             self.logger.error(f"Error during cleanup: {e}")

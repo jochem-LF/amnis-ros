@@ -57,6 +57,8 @@ class VehicleControllerNode(Node):
         # External mode relay configuration
         self.declare_parameter('enable_external_mode_control', True)
         self.declare_parameter('external_mode_pin', 23)  # BCM GPIO 23
+        self.declare_parameter('pigpio_host', 'localhost')
+        self.declare_parameter('pigpio_port', 8888)
         self.declare_parameter('mock_mode', False)
         
         # Log throttling
@@ -71,6 +73,8 @@ class VehicleControllerNode(Node):
         queue_size = int(self.get_parameter('queue_size').value)
         enable_external_mode_control = self.get_parameter('enable_external_mode_control').value
         external_mode_pin = self.get_parameter('external_mode_pin').value
+        pigpio_host = self.get_parameter('pigpio_host').value
+        pigpio_port = self.get_parameter('pigpio_port').value
         mock_mode = self.get_parameter('mock_mode').value
         self._log_throttle_sec = max(float(self.get_parameter('log_throttle_sec').value), 0.0)
         self.verbose = self.get_parameter('verbose').value
@@ -89,7 +93,9 @@ class VehicleControllerNode(Node):
                 disable_neutral_pin=17,  # Not used by this node
                 enable_reverse_pin=27,   # Not used by this node
                 external_mode_pin=external_mode_pin,
-                mock_mode=mock_mode
+                mock_mode=mock_mode,
+                pigpio_host=pigpio_host,
+                pigpio_port=pigpio_port
             )
             
             if not self.transmission_driver.is_connected():

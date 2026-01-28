@@ -13,29 +13,12 @@ This launch file starts:
 import os
 from pathlib import Path
 from launch import LaunchDescription
-from launch.actions import ExecuteProcess, SetEnvironmentVariable
+from launch.actions import ExecuteProcess
 from launch_ros.actions import Node
 
 
 def generate_launch_description():
     """Generate launch description with joystick, controller, and steer nodes."""
-    
-    # Set pigpio connection parameters once for all nodes
-    # These environment variables configure the singleton connection to the remote Raspberry Pi
-    pigpio_host_env = SetEnvironmentVariable(
-        'PIGPIO_HOST',
-        '192.168.10.2'  # Change to your Raspberry Pi's IP address (e.g., '192.168.1.100')
-    )
-    
-    pigpio_port_env = SetEnvironmentVariable(
-        'PIGPIO_PORT',
-        '8888'  # Default pigpiod port
-    )
-    
-    pigpio_mock_env = SetEnvironmentVariable(
-        'PIGPIO_MOCK_MODE',
-        'false'  # Set to 'true' for testing without hardware
-    )
     
     # game_controller_node - reads from joystick hardware
     game_controller_node = Node(
@@ -82,6 +65,8 @@ def generate_launch_description():
             # External mode relay configuration (remote GPIO via pigpio)
             'enable_external_mode_control': True,
             'external_mode_pin': 4,        # BCM GPIO 4 (physical pin 7)
+            'pigpio_host': '192.168.10.2',     # IP of Raspberry Pi running pigpiod
+            'pigpio_port': 8888,            # Default pigpiod port
             'mock_mode': False,             # Set True for testing without hardware
             'log_throttle_sec': 0.5,
             'verbose': False,  # Set to True to enable debug logging for this node
@@ -100,6 +85,9 @@ def generate_launch_description():
             'i2c_bus': 1,                    # I2C bus on Raspberry Pi (typically bus 1)
             'i2c_address': 0x58,             # H-bridge I2C address
             'max_power': 100,                # Maximum speed percentage
+            # Pigpio connection configuration
+            'pigpio_host': '192.168.10.2',      # IP of Raspberry Pi running pigpiod
+            'pigpio_port': 8888,             # Default pigpiod port
             'mock_mode': False,              # Set True for testing without hardware
             'command_timeout_sec': 0.5,
             'deadzone': 0.05,
@@ -146,11 +134,14 @@ def generate_launch_description():
             'pwm_pin': 22,                   # BCM GPIO 22 (physical pin 15)
             'pwm_frequency': 1000,           # PWM frequency in Hz
             'max_throttle': 1.0,             # Maximum throttle (0.0-1.0, set lower for testing)
-            # Transmission relay configuration (gear control - remote GPIO via pigpio)
-            # Note: external_mode_pin is configured in vehicle_controller_node
+            # Pigpio connection configuration
+            'pigpio_host': '192.168.10.2',      # IP of Raspberry Pi running pigpiod
+            'pigpio_port': 8888,             # Default pigpiod port
+            # Transmission relay configuration (remote GPIO via pigpio)
             'enable_transmission_control': True,
-            'disable_neutral_pin': 12,       # BCM GPIO 12 (physical pin 32)
-            'enable_reverse_pin': 5,        # BCM GPIO 5 (physical pin 29)
+            'disable_neutral_pin': 17,       # BCM GPIO 17 (physical pin 11)
+            'enable_reverse_pin': 27,        # BCM GPIO 27 (physical pin 13)
+            'external_mode_pin': 23,         # BCM GPIO 23 (physical pin 16)
             # General configuration
             'mock_mode': False,              # Set True for testing without hardware
             'command_timeout_sec': 0.5,
@@ -191,11 +182,6 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
-        # Set environment variables first (for pigpio connection)
-        pigpio_host_env,
-        pigpio_port_env,
-        pigpio_mock_env,
-        # Then launch all nodes
         game_controller_node,
         joystick_node,
         controller_node,
