@@ -177,7 +177,7 @@ class TransmissionDriver:
         Returns:
             True if successful, False otherwise
         """
-        if self.mock_mode or self._pigpio_conn.is_mock_mode():
+        if self.mock_mode:
             ext_str = f", external_mode={external_mode}" if external_mode is not None else ""
             self.logger.debug(
                 f"MOCK: Setting relays: disable_neutral={disable_neutral}, "
@@ -192,12 +192,10 @@ class TransmissionDriver:
                 return False
         
         try:
-            # Ensure we have a valid connection
-            self._pi = self._pigpio_conn.get_pi()
-            if self._pi is None:
+            # Check if connection is still valid
+            if self._pi is None or not self._pi.connected:
                 self.logger.error("Lost pigpio connection")
                 self._connected = False
-                self._pigpio_conn.increment_error_count()
                 return False
             
             # Set relay states (True=HIGH=1, False=LOW=0)
