@@ -48,7 +48,7 @@ class TransmissionDriver:
         self,
         disable_neutral_pin: int = DEFAULT_DISABLE_NEUTRAL_PIN,
         enable_reverse_pin: int = DEFAULT_ENABLE_REVERSE_PIN,
-        external_mode_pin: int = DEFAULT_EXTERNAL_MODE_PIN,
+        external_mode_pin: Optional[int] = DEFAULT_EXTERNAL_MODE_PIN,
         mock_mode: bool = False,
         pigpio_host: Optional[str] = None,
         pigpio_port: Optional[int] = None,
@@ -58,7 +58,7 @@ class TransmissionDriver:
         Args:
             disable_neutral_pin: GPIO pin for neutral disable relay (BCM numbering)
             enable_reverse_pin: GPIO pin for reverse enable relay (BCM numbering)
-            external_mode_pin: GPIO pin for external mode relay (BCM numbering)
+            external_mode_pin: GPIO pin for external mode relay (BCM numbering, None to skip)
             mock_mode: If True, simulate GPIO without actual hardware
             pigpio_host: IP address/hostname of remote Raspberry Pi (optional)
             pigpio_port: pigpiod port (optional, default 8888)
@@ -66,6 +66,7 @@ class TransmissionDriver:
         self.disable_neutral_pin = disable_neutral_pin
         self.enable_reverse_pin = enable_reverse_pin
         self.external_mode_pin = external_mode_pin
+        self.use_external_mode = external_mode_pin is not None
         self.mock_mode = mock_mode
         
         self._pigpio_conn = PigpioConnection()
@@ -110,25 +111,27 @@ class TransmissionDriver:
             # Import pigpio for constants
             import pigpio
             
-            # Set all pins as outputs
+            # Set pins as outputs
             self._pi.set_mode(self.disable_neutral_pin, pigpio.OUTPUT)
             self._pi.set_mode(self.enable_reverse_pin, pigpio.OUTPUT)
-            self._pi.set_mode(self.external_mode_pin, pigpio.OUTPUT)
+            if self.use_external_mode:
+                self._pi.set_mode(self.external_mode_pin, pigpio.OUTPUT)
             
             # Set initial safe state directly without using _set_gpio_state (to avoid recursion)
             self._pi.write(self.disable_neutral_pin, 0)  # LOW = neutral
             self._pi.write(self.enable_reverse_pin, 0)   # LOW = not reverse
-            self._pi.write(self.external_mode_pin, 0)    # LOW = external mode off
+            if self.use_external_mode:
+                self._pi.write(self.external_mode_pin, 0)    # LOW = external mode off
             
             self._connected = True
             self._current_gear = self.GEAR_NEUTRAL
             self._external_mode = False
             
+            ext_mode_str = f", external_mode={self.external_mode_pin}" if self.use_external_mode else ""
             self.logger.info(
                 f"Remote GPIO transmission initialized: "
                 f"disable_neutral={self.disable_neutral_pin}, "
-                f"enable_reverse={self.enable_reverse_pin}, "
-                f"external_mode={self.external_mode_pin} (BCM), "
+                f"enable_reverse={self.enable_reverse_pin}{ext_mode_str} (BCM), "
                 f"host={self._pigpio_conn.get_host()}"
             )
             return True
@@ -271,6 +274,10 @@ class TransmissionDriver:
         Returns:
             True if successful, False otherwise
         """
+        if not self.use_external_mode:
+            # This instance doesn't control external mode
+            return True
+        
         if self.mock_mode or self._pigpio_conn.is_mock_mode():
             self.logger.debug(f"MOCK: Setting external mode to {enabled}")
             self._external_mode = enabled
@@ -360,7 +367,8 @@ class TransmissionDriver:
                     try:
                         self._pi.write(self.disable_neutral_pin, 0)
                         self._pi.write(self.enable_reverse_pin, 0)
-                        self._pi.write(self.external_mode_pin, 0)
+                        if self.use_external_mode:
+                            self._pi.write(self.external_mode_pin, 0)
                         self.logger.info("All transmission relays set to LOW")
                     except Exception as e:
                         self.logger.error(f"Error setting pins to LOW: {e}")

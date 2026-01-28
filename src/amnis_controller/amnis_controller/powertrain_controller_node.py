@@ -105,11 +105,11 @@ class PowertrainControllerNode(Node):
         
         if enable_transmission_control:
             # Note: external_mode_pin is controlled by vehicle_controller, not this node
-            # Use a dummy pin (GPIO 0) that won't be used
+            # Pass None to skip external mode control
             self.transmission_driver = TransmissionDriver(
                 disable_neutral_pin=disable_neutral_pin,
                 enable_reverse_pin=enable_reverse_pin,
-                external_mode_pin=0,  # Dummy pin, not actually used by this node
+                external_mode_pin=None,  # Not controlled by this node
                 mock_mode=mock_mode,
                 pigpio_host=pigpio_host,
                 pigpio_port=pigpio_port
