@@ -2,12 +2,13 @@
 """Vehicle controller node with state machine.
 
 This node controls the vehicle based on a state machine with the following states:
-- EHB error: Emergency state (to be implemented)
-- immobilized: Vehicle is locked/immobilized (to be implemented)
-- manual: Manual mode - all commands are zeroed out (for now)
-- external: External control mode - joystick commands are forwarded as-is
+- EHB_ERROR: Emergency state (to be implemented)
+- IMMOBILIZED: Vehicle is locked/immobilized (to be implemented)
+- MANUAL: Manual mode - all commands are zeroed out
+- EXTERNAL: External control mode - joystick commands are forwarded as-is
 
-The state machine manages transitions between states based on safety and mode buttons.
+The initial state is configurable via the 'initial_state' parameter.
+State transitions can be added in the future based on vehicle conditions.
 """
 from __future__ import annotations
 
@@ -34,9 +35,9 @@ class VehicleControllerNode(Node):
     
     This node:
     - Subscribes to JoystickCommand messages from the joystick normalizer
-    - Manages vehicle state (EHB error, immobilized, manual, external)
+    - Manages vehicle state (EHB_ERROR, IMMOBILIZED, MANUAL, EXTERNAL)
     - Publishes vehicle commands based on the current state
-    - Handles state transitions based on safety and mode buttons
+    - Controls the external mode relay when transitioning states
     """
 
     def __init__(self) -> None:
@@ -50,9 +51,8 @@ class VehicleControllerNode(Node):
         self.declare_parameter('brake_topic', 'brake_command')
         self.declare_parameter('queue_size', 10)
         
-        # Simulated button inputs (will be replaced with actual hardware later)
-        self.declare_parameter('safety_button', False)
-        self.declare_parameter('mode_button', False)
+        # Initial vehicle state
+        self.declare_parameter('initial_state', 'EXTERNAL')  # MANUAL, EXTERNAL, IMMOBILIZED, EHB_ERROR
         
         # External mode relay configuration
         self.declare_parameter('enable_external_mode_control', True)
@@ -71,6 +71,7 @@ class VehicleControllerNode(Node):
         self._steer_topic = self.get_parameter('steer_topic').value
         self._brake_topic = self.get_parameter('brake_topic').value
         queue_size = int(self.get_parameter('queue_size').value)
+        initial_state_str = self.get_parameter('initial_state').value
         enable_external_mode_control = self.get_parameter('enable_external_mode_control').value
         external_mode_pin = self.get_parameter('external_mode_pin').value
         pigpio_host = self.get_parameter('pigpio_host').value
@@ -79,8 +80,14 @@ class VehicleControllerNode(Node):
         self._log_throttle_sec = max(float(self.get_parameter('log_throttle_sec').value), 0.0)
         self.verbose = self.get_parameter('verbose').value
 
-        # Initialize state machine to MANUAL state
-        self._current_state: VehicleState = VehicleState.MANUAL
+        # Initialize state machine
+        try:
+            self._current_state: VehicleState = VehicleState[initial_state_str.upper()]
+        except KeyError:
+            self.get_logger().warning(
+                f"Invalid initial_state '{initial_state_str}', defaulting to EXTERNAL"
+            )
+            self._current_state = VehicleState.EXTERNAL
         
         # Initialize transmission driver for external mode relay control
         self.enable_external_mode_control = enable_external_mode_control
@@ -104,9 +111,12 @@ class VehicleControllerNode(Node):
                     "Running in degraded mode."
                 )
             else:
-                # Ensure external mode is off at startup (MANUAL state)
-                self.transmission_driver.set_external_mode(False)
-                self.get_logger().info("External mode relay control enabled")
+                # Set external mode relay based on initial state
+                external_mode = (self._current_state == VehicleState.EXTERNAL)
+                self.transmission_driver.set_external_mode(external_mode)
+                self.get_logger().info(
+                    f"External mode relay control enabled (initial mode: {external_mode})"
+                )
         
         # Store the last received joystick command
         self._last_joystick_cmd: Optional[JoystickCommand] = None
@@ -146,65 +156,18 @@ class VehicleControllerNode(Node):
                 f"steer={self._steer_topic}, brake={self._brake_topic}])"
             )
 
-    def _get_button_states(self) -> tuple[bool, bool]:
-        """Get the current button states.
-        
-        For now, this reads from parameters. In the future, this will read
-        from actual hardware buttons.
-        
-        Returns:
-            Tuple of (safety_button, mode_button) where True = pressed
-        """
-        # Re-read parameters to allow runtime changes
-        safety_button = bool(self.get_parameter('safety_button').value)
-        mode_button = bool(self.get_parameter('mode_button').value)
-        return safety_button, mode_button
-
     def _update_state_machine(self) -> None:
         """Update the state machine based on current inputs.
         
-        State transitions:
-        - manual → external: when mode_button=1 and safety_button=0
-        - external → manual: when mode_button=0
-        - immobilized and EHB_ERROR: to be implemented
+        State transitions are currently not implemented - the vehicle stays in
+        its initial state. Future implementations may add state transitions based on:
+        - EHB error conditions → EHB_ERROR state
+        - Immobilization requests → IMMOBILIZED state
+        - Manual override requests → MANUAL state
         """
-        safety_button, mode_button = self._get_button_states()
-        previous_state = self._current_state
-
-        if self._current_state == VehicleState.MANUAL:
-            # Transition from MANUAL to EXTERNAL
-            if mode_button and not safety_button:
-                self._current_state = VehicleState.EXTERNAL
-                
-        elif self._current_state == VehicleState.EXTERNAL:
-            # Transition from EXTERNAL back to MANUAL
-            if not mode_button:
-                self._current_state = VehicleState.MANUAL
-                
-        elif self._current_state == VehicleState.IMMOBILIZED:
-            # To be implemented
-            pass
-            
-        elif self._current_state == VehicleState.EHB_ERROR:
-            # To be implemented
-            pass
-
-        # Log state changes
-        if self._current_state != previous_state:
-            if self.verbose:
-                self.get_logger().info(
-                    f"State transition: {previous_state.name} → {self._current_state.name} "
-                    f"(safety={safety_button}, mode={mode_button})"
-                )
-            
-            # Update external mode relay when transitioning to/from EXTERNAL state
-            if self.enable_external_mode_control and self.transmission_driver is not None:
-                external_mode = (self._current_state == VehicleState.EXTERNAL)
-                success = self.transmission_driver.set_external_mode(external_mode)
-                if not success:
-                    self.get_logger().warning(
-                        f"Failed to set external mode relay to {external_mode}"
-                    )
+        # For now, maintain the current state
+        # Future: Add state transition logic here
+        pass
 
     def _process_command(self, joystick_cmd: JoystickCommand) -> tuple[PowertrainCommand, SteerCommand, BrakeCommand]:
         """Process the joystick command based on the current state.
@@ -277,13 +240,11 @@ class VehicleControllerNode(Node):
 
         # Log for debugging
         if self.verbose:
-            safety_button, mode_button = self._get_button_states()
             self.get_logger().info(
                 f"[{self._current_state.name}] "
                 f"IN(throttle={msg.throttle:.2f}, steer={msg.steer:.2f}, gear={msg.gear}, brake={msg.brake:.2f}) → "
                 f"OUT(powertrain: throttle={powertrain_cmd.throttle:.2f}, gear={powertrain_cmd.gear} | "
-                f"steer={steer_cmd.steer:.2f} | brake={brake_cmd.brake:.2f}) "
-                f"[safety={safety_button}, mode={mode_button}]",
+                f"steer={steer_cmd.steer:.2f} | brake={brake_cmd.brake:.2f})",
                 throttle_duration_sec=self._log_throttle_sec
             )
 
