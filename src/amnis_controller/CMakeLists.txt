@@ -74,6 +74,12 @@ install(PROGRAMS
   RENAME powertrain_controller_node
 )
 
+install(PROGRAMS
+  amnis_controller/sensor_input_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME sensor_input_node
+)
+
 install(
   DIRECTORY launch resource
   DESTINATION share/${PROJECT_NAME}
