@@ -57,14 +57,29 @@ class PigpioConnection:
         self._connection_lock = threading.RLock()
         
         self.logger = logging.getLogger('PigpioConnection')
-        self.logger.info(
-            f"PigpioConnection singleton initialized: "
-            f"host={self._host}, port={self._port}, mock_mode={self._mock_mode}"
-        )
+        
+        # Use print for visibility in addition to logging
+        print("=" * 60)
+        print(f"[PigpioConnection] Singleton Initializing")
+        print(f"  Host: {self._host}")
+        print(f"  Port: {self._port}")
+        print(f"  Mock Mode: {self._mock_mode}")
+        print("=" * 60)
+        
+        self.logger.info("=" * 60)
+        self.logger.info(f"PigpioConnection Singleton Configuration:")
+        self.logger.info(f"  Host: {self._host}")
+        self.logger.info(f"  Port: {self._port}")
+        self.logger.info(f"  Mock Mode: {self._mock_mode}")
+        self.logger.info("=" * 60)
         
         # Connect immediately (like the working example)
+        print(f"[PigpioConnection] About to connect (mock_mode={self._mock_mode})...")
         if not self._mock_mode:
+            print(f"[PigpioConnection] Calling connect()...")
             self.connect()
+        else:
+            print(f"[PigpioConnection] Skipping connect() - mock mode enabled")
     
     def configure(
         self,
@@ -126,20 +141,43 @@ class PigpioConnection:
             try:
                 import pigpio
                 
-                self.logger.info(f"Connecting to pigpiod at {self._host}:{self._port}...")
+                print("=" * 60)
+                print(f"[PigpioConnection] Attempting connection to pigpiod:")
+                print(f"  Target IP: {self._host}")
+                print(f"  Target Port: {self._port}")
+                print("=" * 60)
+                
+                self.logger.info("=" * 60)
+                self.logger.info(f"Attempting connection to pigpiod:")
+                self.logger.info(f"  Target IP: {self._host}")
+                self.logger.info(f"  Target Port: {self._port}")
+                self.logger.info("=" * 60)
                 
                 # Simple connection - just like the working example
                 self._pi = pigpio.pi(self._host, self._port)
                 
                 if self._pi.connected:
                     self._connected = True
-                    self.logger.info(f"✓ Connected to pigpiod at {self._host}:{self._port}")
+                    print("=" * 60)
+                    print(f"[PigpioConnection] ✓ SUCCESS: Connected to pigpiod")
+                    print(f"  Remote Host: {self._host}:{self._port}")
+                    print("=" * 60)
+                    self.logger.info("=" * 60)
+                    self.logger.info(f"✓ SUCCESS: Connected to pigpiod")
+                    self.logger.info(f"  Remote Host: {self._host}:{self._port}")
+                    self.logger.info("=" * 60)
                     return True
                 else:
-                    self.logger.error(
-                        f"✗ Failed to connect to pigpiod at {self._host}:{self._port}. "
-                        "Make sure pigpiod is running: sudo pigpiod"
-                    )
+                    print("=" * 60)
+                    print(f"[PigpioConnection] ✗ FAILED: Could not connect to pigpiod")
+                    print(f"  Target: {self._host}:{self._port}")
+                    print(f"  Make sure pigpiod is running with: sudo pigpiod")
+                    print("=" * 60)
+                    self.logger.error("=" * 60)
+                    self.logger.error(f"✗ FAILED: Could not connect to pigpiod")
+                    self.logger.error(f"  Target: {self._host}:{self._port}")
+                    self.logger.error(f"  Make sure pigpiod is running with: sudo pigpiod")
+                    self.logger.error("=" * 60)
                     self._connected = False
                     return False
                 
