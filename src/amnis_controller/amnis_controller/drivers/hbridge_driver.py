@@ -9,7 +9,7 @@ Compatible with any system that can connect to a pigpiod daemon over network.
 
 from typing import Optional
 import logging
-from .pigpio_connection import PigpioConnection
+from . import pigpio_connection
 
 
 class HBridgeDriver:
@@ -52,7 +52,6 @@ class HBridgeDriver:
         self.max_power = max_power
         self.mock_mode = mock_mode
         
-        self._pigpio_conn = PigpioConnection()
         self._pi = None
         self._i2c_handle: Optional[int] = None
         self._connected = False
@@ -60,11 +59,14 @@ class HBridgeDriver:
         self._last_speed = 0
         self._error_count = 0
         
-        self.logger = logging.getLogger('HBridgeDriver')
-        
-        # Configure mock mode if specified locally
+        # Get connection config from environment
+        self._host, self._port, env_mock = pigpio_connection.get_config()
+        # Local mock_mode overrides environment
         if mock_mode:
-            self._pigpio_conn.configure(mock_mode=mock_mode)
+            env_mock = True
+        self.mock_mode = env_mock
+        
+        self.logger = logging.getLogger('HBridgeDriver')
         
         # Try to initialize I2C
         self._initialize_i2c()
@@ -75,16 +77,23 @@ class HBridgeDriver:
         Returns:
             True if successful, False otherwise
         """
-        if self.mock_mode or self._pigpio_conn.is_mock_mode():
+        if self.mock_mode:
             self.logger.info("Running in MOCK mode - no actual I2C communication")
             self._connected = True
             return True
         
         try:
-            # Get pigpio connection
-            self._pi = self._pigpio_conn.get_pi()
-            if self._pi is None:
-                self.logger.error("Failed to get pigpio connection")
+            # Import pigpio and connect directly
+            import pigpio
+            
+            self.logger.info(f"Connecting to pigpiod at {self._host}:{self._port}...")
+            self._pi = pigpio.pi(self._host, self._port)
+            
+            if not self._pi.connected:
+                self.logger.error(
+                    f"Failed to connect to pigpiod at {self._host}:{self._port}. "
+                    "Make sure pigpiod is running: sudo pigpiod"
+                )
                 self._connected = False
                 return False
             
@@ -102,7 +111,7 @@ class HBridgeDriver:
             self._connected = True
             self.logger.info(
                 f"Remote I2C initialized: bus={self.i2c_bus}, address=0x{self.i2c_address:02x}, "
-                f"handle={self._i2c_handle}, host={self._pigpio_conn.get_host()}"
+                f"handle={self._i2c_handle}, host={self._host}:{self._port}"
             )
             return True
             
@@ -115,7 +124,6 @@ class HBridgeDriver:
         except Exception as e:
             self.logger.error(f"Failed to initialize remote I2C: {e}")
             self._connected = False
-            self._pigpio_conn.increment_error_count()
             return False
     
     def is_connected(self) -> bool:
@@ -124,10 +132,10 @@ class HBridgeDriver:
         Returns:
             True if connected, False otherwise
         """
-        if self.mock_mode or self._pigpio_conn.is_mock_mode():
+        if self.mock_mode:
             return self._connected
         
-        return self._connected and self._pigpio_conn.is_connected()
+        return self._connected and self._pi is not None and self._pi.connected
     
     def _power_to_pwm(self, power: int) -> int:
         """Convert power percentage to PWM value.
@@ -221,7 +229,7 @@ class HBridgeDriver:
         # If direction is 0, PWM will be 0 regardless
         pwm = self._power_to_pwm(speed) if direction != 0 else 0
         
-        if self.mock_mode or self._pigpio_conn.is_mock_mode():
+        if self.mock_mode:
             dir_name = {0: "STOP", 1: "LEFT", 2: "RIGHT"}.get(direction, "UNKNOWN")
             self.logger.debug(
                 f"MOCK: Sending direction={direction} ({dir_name}), speed={speed}% → PWM={pwm}"
@@ -235,12 +243,10 @@ class HBridgeDriver:
                 return False
         
         try:
-            # Ensure we have a valid connection
-            self._pi = self._pigpio_conn.get_pi()
-            if self._pi is None:
+            # Check if connection is still valid
+            if self._pi is None or not self._pi.connected:
                 self.logger.error("Lost pigpio connection")
                 self._connected = False
-                self._pigpio_conn.increment_error_count()
                 return False
             
             # Verify handle is still valid
@@ -265,7 +271,6 @@ class HBridgeDriver:
         except Exception as e:
             self.logger.error(f"I2C communication error: {e}")
             self._connected = False
-            self._pigpio_conn.increment_error_count()
             return False
     
     def stop(self) -> bool:
@@ -318,13 +323,14 @@ class HBridgeDriver:
         except Exception as e:
             self.logger.error(f"Error sending final stop command: {e}")
         
-        if not self.mock_mode and not self._pigpio_conn.is_mock_mode():
-            if self._pi is not None and self._i2c_handle is not None and self._i2c_handle >= 0:
-                try:
+        if not self.mock_mode and self._pi is not None:
+            try:
+                if self._i2c_handle is not None and self._i2c_handle >= 0:
                     self._pi.i2c_close(self._i2c_handle)
-                    self.logger.info("I2C handle closed")
-                except Exception as e:
-                    self.logger.error(f"Error closing I2C handle: {e}")
+                self._pi.stop()
+                self.logger.info("I2C closed and disconnected")
+            except Exception as e:
+                self.logger.error(f"Error closing I2C: {e}")
         
         self._connected = False
         self._i2c_handle = None
