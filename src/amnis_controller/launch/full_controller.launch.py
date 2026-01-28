@@ -139,8 +139,8 @@ def generate_launch_description():
             'pigpio_port': 8888,             # Default pigpiod port
             # Transmission relay configuration (gear control only - external mode in vehicle_controller)
             'enable_transmission_control': True,
-            'disable_neutral_pin': 17,       # BCM GPIO 17 (physical pin 11)
-            'enable_reverse_pin': 27,        # BCM GPIO 27 (physical pin 13)
+            'disable_neutral_pin': 12,       # BCM GPIO 12 (physical pin 32)
+            'enable_reverse_pin': 5,         # BCM GPIO 5 (physical pin 29)
             # General configuration
             'mock_mode': False,              # Set True for testing without hardware
             'command_timeout_sec': 0.5,
