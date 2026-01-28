@@ -188,39 +188,35 @@ class ADCDriver:
             if not self._connected:
                 return False
         
-        # Acquire I2C bus lock to prevent concurrent access
-        i2c_lock = self._pigpio_conn.get_i2c_bus_lock(self.i2c_bus)
-        
         try:
-            with i2c_lock:
-                # Ensure we have a valid connection
-                self._pi = self._pigpio_conn.get_pi()
-                if self._pi is None:
-                    self.logger.error("Lost pigpio connection")
-                    self._connected = False
-                    self._pigpio_conn.increment_error_count()
+            # Ensure we have a valid connection
+            self._pi = self._pigpio_conn.get_pi()
+            if self._pi is None:
+                self.logger.error("Lost pigpio connection")
+                self._connected = False
+                self._pigpio_conn.increment_error_count()
+                return False
+            
+            # Verify handle is still valid
+            if self._i2c_handle is None or self._i2c_handle < 0:
+                self.logger.error("Invalid I2C handle, attempting to reconnect...")
+                self._initialize_i2c()
+                if not self._connected:
                     return False
-                
-                # Verify handle is still valid
-                if self._i2c_handle is None or self._i2c_handle < 0:
-                    self.logger.error("Invalid I2C handle, attempting to reconnect...")
-                    self._initialize_i2c()
-                    if not self._connected:
-                        return False
-                
-                # Write 16-bit config as two bytes (MSB first)
-                msb = (config >> 8) & 0xFF
-                lsb = config & 0xFF
-                
-                # Write to config register
-                self._pi.i2c_write_i2c_block_data(
-                    self._i2c_handle,
-                    self.REG_CONFIG,
-                    [msb, lsb]
-                )
-                
-                self.logger.debug(f"Config written: 0x{config:04x} (MSB=0x{msb:02x}, LSB=0x{lsb:02x})")
-                return True
+            
+            # Write 16-bit config as two bytes (MSB first)
+            msb = (config >> 8) & 0xFF
+            lsb = config & 0xFF
+            
+            # Write to config register
+            self._pi.i2c_write_i2c_block_data(
+                self._i2c_handle,
+                self.REG_CONFIG,
+                [msb, lsb]
+            )
+            
+            self.logger.debug(f"Config written: 0x{config:04x} (MSB=0x{msb:02x}, LSB=0x{lsb:02x})")
+            return True
             
         except Exception as e:
             self.logger.error(f"I2C write config error: {e}")
@@ -246,45 +242,41 @@ class ADCDriver:
             if not self._connected:
                 return None
         
-        # Acquire I2C bus lock to prevent concurrent access
-        i2c_lock = self._pigpio_conn.get_i2c_bus_lock(self.i2c_bus)
-        
         try:
-            with i2c_lock:
-                # Ensure we have a valid connection
-                self._pi = self._pigpio_conn.get_pi()
-                if self._pi is None:
-                    self.logger.error("Lost pigpio connection")
-                    self._connected = False
-                    self._pigpio_conn.increment_error_count()
+            # Ensure we have a valid connection
+            self._pi = self._pigpio_conn.get_pi()
+            if self._pi is None:
+                self.logger.error("Lost pigpio connection")
+                self._connected = False
+                self._pigpio_conn.increment_error_count()
+                return None
+            
+            # Verify handle is still valid
+            if self._i2c_handle is None or self._i2c_handle < 0:
+                self.logger.error("Invalid I2C handle, attempting to reconnect...")
+                self._initialize_i2c()
+                if not self._connected:
                     return None
-                
-                # Verify handle is still valid
-                if self._i2c_handle is None or self._i2c_handle < 0:
-                    self.logger.error("Invalid I2C handle, attempting to reconnect...")
-                    self._initialize_i2c()
-                    if not self._connected:
-                        return None
-                
-                # Read 2 bytes from conversion register
-                count, data = self._pi.i2c_read_i2c_block_data(
-                    self._i2c_handle,
-                    self.REG_CONVERSION,
-                    2
-                )
-                
-                if count != 2:
-                    self.logger.error(f"Expected 2 bytes, got {count}")
-                    self._error_count += 1
-                    return None
-                
-                # Combine bytes: result is 12-bit, left-aligned in 16-bit register
-                raw = (data[0] << 8) | data[1]
-                # Shift right by 4 to get 12-bit value
-                value = raw >> 4
-                
-                self.logger.debug(f"Conversion read: raw=0x{raw:04x}, value={value}")
-                return value
+            
+            # Read 2 bytes from conversion register
+            count, data = self._pi.i2c_read_i2c_block_data(
+                self._i2c_handle,
+                self.REG_CONVERSION,
+                2
+            )
+            
+            if count != 2:
+                self.logger.error(f"Expected 2 bytes, got {count}")
+                self._error_count += 1
+                return None
+            
+            # Combine bytes: result is 12-bit, left-aligned in 16-bit register
+            raw = (data[0] << 8) | data[1]
+            # Shift right by 4 to get 12-bit value
+            value = raw >> 4
+            
+            self.logger.debug(f"Conversion read: raw=0x{raw:04x}, value={value}")
+            return value
             
         except Exception as e:
             self.logger.error(f"I2C read conversion error: {e}")

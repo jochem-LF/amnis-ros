@@ -52,11 +52,6 @@ class PigpioConnection:
         self._error_count = 0
         self._connection_lock = threading.RLock()
         
-        # I2C bus locks - one lock per bus to prevent concurrent access
-        # Key: bus number, Value: threading.RLock
-        self._i2c_bus_locks = {}
-        self._i2c_locks_lock = threading.Lock()  # Protects the dict itself
-        
         self.logger = logging.getLogger('PigpioConnection')
     
     def configure(
@@ -244,31 +239,6 @@ class PigpioConnection:
         This should be called by drivers when they encounter errors.
         """
         self._error_count += 1
-    
-    def get_i2c_bus_lock(self, bus_number: int) -> threading.RLock:
-        """Get the lock for a specific I2C bus.
-        
-        Returns a reentrant lock that should be acquired before any I2C
-        operations on the specified bus. This prevents multiple drivers
-        from accessing the same I2C bus simultaneously, which can cause
-        timing conflicts and communication errors.
-        
-        Args:
-            bus_number: I2C bus number (typically 0 or 1 on Raspberry Pi)
-        
-        Returns:
-            threading.RLock for the specified I2C bus
-        
-        Example:
-            conn = PigpioConnection()
-            with conn.get_i2c_bus_lock(1):
-                # Perform I2C operations on bus 1
-                pi.i2c_write_byte_data(handle, reg, value)
-        """
-        with self._i2c_locks_lock:
-            if bus_number not in self._i2c_bus_locks:
-                self._i2c_bus_locks[bus_number] = threading.RLock()
-            return self._i2c_bus_locks[bus_number]
     
     @classmethod
     def reset_singleton(cls) -> None:

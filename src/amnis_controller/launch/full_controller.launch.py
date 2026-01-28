@@ -217,7 +217,7 @@ def generate_launch_description():
     return LaunchDescription([
         game_controller_node,
         joystick_node,
-        sensor_input_node,
+        # sensor_input_node,  # DISABLED: Causing relay switching issues
         controller_node,
         steer_controller_node,
         brake_controller_node,

@@ -236,37 +236,33 @@ class HBridgeDriver:
             if not self._connected:
                 return False
         
-        # Acquire I2C bus lock to prevent concurrent access with other I2C drivers
-        i2c_lock = self._pigpio_conn.get_i2c_bus_lock(self.i2c_bus)
-        
         try:
-            with i2c_lock:
-                # Ensure we have a valid connection
-                self._pi = self._pigpio_conn.get_pi()
-                if self._pi is None:
-                    self.logger.error("Lost pigpio connection")
-                    self._connected = False
-                    self._pigpio_conn.increment_error_count()
+            # Ensure we have a valid connection
+            self._pi = self._pigpio_conn.get_pi()
+            if self._pi is None:
+                self.logger.error("Lost pigpio connection")
+                self._connected = False
+                self._pigpio_conn.increment_error_count()
+                return False
+            
+            # Verify handle is still valid
+            if self._i2c_handle is None or self._i2c_handle < 0:
+                self.logger.error("Invalid I2C handle, attempting to reconnect...")
+                self._initialize_i2c()
+                if not self._connected:
                     return False
-                
-                # Verify handle is still valid
-                if self._i2c_handle is None or self._i2c_handle < 0:
-                    self.logger.error("Invalid I2C handle, attempting to reconnect...")
-                    self._initialize_i2c()
-                    if not self._connected:
-                        return False
-                
-                # Send to H-bridge via I2C (original protocol)
-                # Register 0: Direction (0=stop, 1=right, 2=left)
-                # Register 2: PWM speed value (0 or 120-243)
-                self._pi.i2c_write_byte_data(self._i2c_handle, 0, direction)
-                self._pi.i2c_write_byte_data(self._i2c_handle, 2, pwm)
-                
-                dir_name = {0: "STOP", 1: "LEFT", 2: "RIGHT"}.get(direction, "?")
-                self.logger.debug(
-                    f"I2C sent: dir={direction}({dir_name}), speed={speed}% → PWM={pwm}"
-                )
-                return True
+            
+            # Send to H-bridge via I2C (original protocol)
+            # Register 0: Direction (0=stop, 1=right, 2=left)
+            # Register 2: PWM speed value (0 or 120-243)
+            self._pi.i2c_write_byte_data(self._i2c_handle, 0, direction)
+            self._pi.i2c_write_byte_data(self._i2c_handle, 2, pwm)
+            
+            dir_name = {0: "STOP", 1: "LEFT", 2: "RIGHT"}.get(direction, "?")
+            self.logger.debug(
+                f"I2C sent: dir={direction}({dir_name}), speed={speed}% → PWM={pwm}"
+            )
+            return True
             
         except Exception as e:
             self.logger.error(f"I2C communication error: {e}")
