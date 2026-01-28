@@ -1,298 +1,212 @@
-"""Singleton connection manager for remote pigpio daemon.
+"""Simple module-level connection manager for remote pigpio daemon.
 
-This module provides a thread-safe singleton for managing a connection to a
-remote Raspberry Pi running the pigpio daemon (pigpiod). This ensures only
-one connection is maintained across all driver instances.
+This module provides a shared connection to a remote Raspberry Pi running 
+the pigpio daemon (pigpiod). The connection is established when this module 
+is first imported.
 
-The connection is configured once via environment variables:
+Configuration via environment variables:
 - PIGPIO_HOST: IP address or hostname (default: "localhost")
 - PIGPIO_PORT: Port number (default: 8888)
+- PIGPIO_MOCK_MODE: Set to 'true' for mock mode (default: "false")
 """
 
-import threading
-import logging
 import os
+import logging
 from typing import Optional
 
+# Module-level logger
+logger = logging.getLogger('PigpioConnection')
 
-class PigpioConnection:
-    """Thread-safe singleton for managing remote pigpio connection.
+# Read configuration from environment
+PIGPIO_HOST = os.environ.get('PIGPIO_HOST', 'localhost')
+PIGPIO_PORT = int(os.environ.get('PIGPIO_PORT', '8888'))
+PIGPIO_MOCK_MODE = os.environ.get('PIGPIO_MOCK_MODE', 'false').lower() == 'true'
+
+# Module-level pigpio connection (shared by all drivers)
+_pi = None
+_connected = False
+
+def _initialize_connection():
+    """Initialize the module-level pigpio connection."""
+    global _pi, _connected
     
-    This class ensures only one pigpio connection exists across all driver
-    instances, preventing resource exhaustion from multiple connections.
+    print("=" * 60)
+    print(f"[PigpioConnection] Module Initializing")
+    print(f"  Host: {PIGPIO_HOST}")
+    print(f"  Port: {PIGPIO_PORT}")
+    print(f"  Mock Mode: {PIGPIO_MOCK_MODE}")
+    print("=" * 60)
     
-    Configuration:
-    - host: IP address or hostname of remote Raspberry Pi (default: "localhost")
-    - port: pigpiod port (default: 8888)
-    - mock_mode: If True, simulate connection without actual hardware
-    """
+    if PIGPIO_MOCK_MODE:
+        print(f"[PigpioConnection] Running in MOCK mode")
+        logger.info("Running in MOCK mode - no actual pigpio connection")
+        _connected = True
+        _pi = None
+        return
     
-    _instance: Optional['PigpioConnection'] = None
-    _lock = threading.Lock()
-    
-    def __new__(cls):
-        """Create or return the singleton instance."""
-        if cls._instance is None:
-            with cls._lock:
-                # Double-check locking pattern
-                if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-                    cls._instance._initialized = False
-        return cls._instance
-    
-    def __init__(self):
-        """Initialize the singleton (only runs once)."""
-        # Prevent re-initialization
-        if self._initialized:
-            return
+    try:
+        import pigpio
         
-        self._initialized = True
-        self._pi = None
-        # Read from environment variables (set once at system level)
-        self._host = os.environ.get('PIGPIO_HOST', 'localhost')
-        self._port = int(os.environ.get('PIGPIO_PORT', '8888'))
-        self._mock_mode = os.environ.get('PIGPIO_MOCK_MODE', 'false').lower() == 'true'
-        self._connected = False
-        self._error_count = 0
-        self._connection_lock = threading.RLock()
-        
-        self.logger = logging.getLogger('PigpioConnection')
-        
-        # Use print for visibility in addition to logging
         print("=" * 60)
-        print(f"[PigpioConnection] Singleton Initializing")
-        print(f"  Host: {self._host}")
-        print(f"  Port: {self._port}")
-        print(f"  Mock Mode: {self._mock_mode}")
+        print(f"[PigpioConnection] Connecting to pigpiod...")
+        print(f"  Target IP: {PIGPIO_HOST}")
+        print(f"  Target Port: {PIGPIO_PORT}")
         print("=" * 60)
         
-        self.logger.info("=" * 60)
-        self.logger.info(f"PigpioConnection Singleton Configuration:")
-        self.logger.info(f"  Host: {self._host}")
-        self.logger.info(f"  Port: {self._port}")
-        self.logger.info(f"  Mock Mode: {self._mock_mode}")
-        self.logger.info("=" * 60)
+        _pi = pigpio.pi(PIGPIO_HOST, PIGPIO_PORT)
         
-        # Connect immediately (like the working example)
-        print(f"[PigpioConnection] About to connect (mock_mode={self._mock_mode})...")
-        if not self._mock_mode:
-            print(f"[PigpioConnection] Calling connect()...")
-            self.connect()
+        if _pi.connected:
+            _connected = True
+            print("=" * 60)
+            print(f"[PigpioConnection] ✓ SUCCESS: Connected to pigpiod")
+            print(f"  Remote Host: {PIGPIO_HOST}:{PIGPIO_PORT}")
+            print("=" * 60)
+            logger.info(f"✓ Connected to pigpiod at {PIGPIO_HOST}:{PIGPIO_PORT}")
         else:
-            print(f"[PigpioConnection] Skipping connect() - mock mode enabled")
+            _connected = False
+            print("=" * 60)
+            print(f"[PigpioConnection] ✗ FAILED: Could not connect")
+            print(f"  Target: {PIGPIO_HOST}:{PIGPIO_PORT}")
+            print(f"  Make sure pigpiod is running: sudo pigpiod")
+            print("=" * 60)
+            logger.error(f"Failed to connect to pigpiod at {PIGPIO_HOST}:{PIGPIO_PORT}")
+            
+    except ImportError:
+        print("[PigpioConnection] ERROR: pigpio library not installed")
+        print("  Install with: pip install pigpio")
+        logger.error("pigpio library not installed")
+        _connected = False
+    except Exception as e:
+        print(f"[PigpioConnection] ERROR: {e}")
+        logger.error(f"Failed to connect to pigpiod: {e}")
+        _connected = False
+
+# Connect immediately when module is imported
+print("[PigpioConnection] Module imported - initializing connection...")
+_initialize_connection()
+
+
+def get_pi():
+    """Get the shared pigpio.pi instance.
     
-    def configure(
-        self,
-        host: Optional[str] = None,
-        port: Optional[int] = None,
-        mock_mode: Optional[bool] = None
-    ) -> None:
-        """Configure connection parameters (deprecated - use environment variables).
+    Returns:
+        pigpio.pi instance if connected, None otherwise
         
-        This method is kept for backward compatibility but is deprecated.
-        Use PIGPIO_HOST, PIGPIO_PORT, and PIGPIO_MOCK_MODE environment variables instead.
-        
-        Only the first call to configure() will have any effect (singleton pattern).
-        
-        Args:
-            host: IP address or hostname of remote Raspberry Pi
-            port: pigpiod port number
-            mock_mode: If True, simulate connection without hardware
-        """
-        with self._connection_lock:
-            # Only allow configuration if not yet connected
-            # This prevents configuration conflicts between different nodes
-            if self._connected:
-                self.logger.warning(
-                    "Ignoring configure() call - already connected. "
-                    "Configuration is set via environment variables at startup."
-                )
-                return
-            
-            if host is not None:
-                self._host = host
-            if port is not None:
-                self._port = port
-            if mock_mode is not None:
-                self._mock_mode = mock_mode
-            
-            self.logger.info(
-                f"Configured: host={self._host}, port={self._port}, "
-                f"mock_mode={self._mock_mode}"
-            )
+    Note:
+        In mock mode, returns None. Callers should check is_mock_mode()
+    """
+    global _pi, _connected
     
-    def connect(self) -> bool:
-        """Establish connection to pigpio daemon.
-        
-        Returns:
-            True if connected successfully, False otherwise
-        """
-        with self._connection_lock:
-            # If already connected, check if still alive
-            if self._pi is not None and self._pi.connected:
-                return True
-            
-            if self._mock_mode:
-                self.logger.info("Running in MOCK mode - no actual pigpio connection")
-                self._connected = True
-                self._pi = None
-                return True
-            
-            try:
-                import pigpio
-                
-                print("=" * 60)
-                print(f"[PigpioConnection] Attempting connection to pigpiod:")
-                print(f"  Target IP: {self._host}")
-                print(f"  Target Port: {self._port}")
-                print("=" * 60)
-                
-                self.logger.info("=" * 60)
-                self.logger.info(f"Attempting connection to pigpiod:")
-                self.logger.info(f"  Target IP: {self._host}")
-                self.logger.info(f"  Target Port: {self._port}")
-                self.logger.info("=" * 60)
-                
-                # Simple connection - just like the working example
-                self._pi = pigpio.pi(self._host, self._port)
-                
-                if self._pi.connected:
-                    self._connected = True
-                    print("=" * 60)
-                    print(f"[PigpioConnection] ✓ SUCCESS: Connected to pigpiod")
-                    print(f"  Remote Host: {self._host}:{self._port}")
-                    print("=" * 60)
-                    self.logger.info("=" * 60)
-                    self.logger.info(f"✓ SUCCESS: Connected to pigpiod")
-                    self.logger.info(f"  Remote Host: {self._host}:{self._port}")
-                    self.logger.info("=" * 60)
-                    return True
-                else:
-                    print("=" * 60)
-                    print(f"[PigpioConnection] ✗ FAILED: Could not connect to pigpiod")
-                    print(f"  Target: {self._host}:{self._port}")
-                    print(f"  Make sure pigpiod is running with: sudo pigpiod")
-                    print("=" * 60)
-                    self.logger.error("=" * 60)
-                    self.logger.error(f"✗ FAILED: Could not connect to pigpiod")
-                    self.logger.error(f"  Target: {self._host}:{self._port}")
-                    self.logger.error(f"  Make sure pigpiod is running with: sudo pigpiod")
-                    self.logger.error("=" * 60)
-                    self._connected = False
-                    return False
-                
-            except ImportError:
-                self.logger.error(
-                    "pigpio library not installed. Install with: pip install pigpio"
-                )
-                self._connected = False
-                return False
-            except Exception as e:
-                self.logger.error(f"Failed to connect to pigpiod: {e}")
-                self._connected = False
-                return False
-    
-    def disconnect(self) -> None:
-        """Disconnect from pigpio daemon."""
-        with self._connection_lock:
-            if self._pi is not None and not self._mock_mode:
-                try:
-                    self._pi.stop()
-                    self.logger.info("Disconnected from pigpiod")
-                except Exception as e:
-                    self.logger.error(f"Error disconnecting: {e}")
-            
-            self._pi = None
-            self._connected = False
-    
-    def get_pi(self):
-        """Get the pigpio.pi instance.
-        
-        Returns:
-            pigpio.pi instance if connected, None otherwise
-            
-        Note:
-            In mock mode, returns None. Callers should check is_mock_mode()
-            to determine if they should simulate operations.
-        """
-        # In mock mode, return None (callers should check is_mock_mode)
-        if self._mock_mode:
-            return None
-        
-        # Simple: if we have a connection and it's alive, return it
-        if self._pi is not None and self._pi.connected:
-            return self._pi
-        
-        # Otherwise, try to reconnect
-        self.logger.warning("Connection lost or not established, reconnecting...")
-        if self.connect():
-            return self._pi
-        
+    if PIGPIO_MOCK_MODE:
         return None
     
+    # Check if connection is still alive
+    if _pi is not None and _pi.connected:
+        return _pi
+    
+    # Try to reconnect if connection was lost
+    print("[PigpioConnection] Connection lost, attempting to reconnect...")
+    logger.warning("Connection lost, attempting to reconnect...")
+    _initialize_connection()
+    
+    return _pi if _connected else None
+
+
+def is_connected() -> bool:
+    """Check if connected to pigpio daemon.
+    
+    Returns:
+        True if connected (or in mock mode), False otherwise
+    """
+    if PIGPIO_MOCK_MODE:
+        return True
+    
+    return _pi is not None and _pi.connected
+
+
+def is_mock_mode() -> bool:
+    """Check if running in mock mode.
+    
+    Returns:
+        True if in mock mode, False otherwise
+    """
+    return PIGPIO_MOCK_MODE
+
+
+def get_host() -> str:
+    """Get configured host.
+    
+    Returns:
+        Host string
+    """
+    return PIGPIO_HOST
+
+
+def get_port() -> int:
+    """Get configured port.
+    
+    Returns:
+        Port number
+    """
+    return PIGPIO_PORT
+
+
+def disconnect():
+    """Disconnect from pigpio daemon."""
+    global _pi, _connected
+    
+    if _pi is not None and not PIGPIO_MOCK_MODE:
+        try:
+            _pi.stop()
+            logger.info("Disconnected from pigpiod")
+            print("[PigpioConnection] Disconnected from pigpiod")
+        except Exception as e:
+            logger.error(f"Error disconnecting: {e}")
+    
+    _pi = None
+    _connected = False
+
+
+# For backward compatibility, provide a dummy class
+class PigpioConnection:
+    """Dummy class for backward compatibility.
+    
+    The actual connection is now managed at module level.
+    This class just provides access to the module-level functions.
+    """
+    
+    def __init__(self):
+        """Initialize (does nothing - connection is already established)."""
+        pass
+    
+    def get_pi(self):
+        """Get the pigpio.pi instance."""
+        return get_pi()
+    
     def is_connected(self) -> bool:
-        """Check if connected to pigpio daemon.
-        
-        Returns:
-            True if connected (or in mock mode), False otherwise
-        """
-        if self._mock_mode:
-            return True
-        
-        # Simple check: do we have a pi object and is it connected?
-        return self._pi is not None and self._pi.connected
+        """Check if connected."""
+        return is_connected()
     
     def is_mock_mode(self) -> bool:
-        """Check if running in mock mode.
-        
-        Returns:
-            True if in mock mode, False otherwise
-        """
-        return self._mock_mode
+        """Check if in mock mode."""
+        return is_mock_mode()
     
     def get_host(self) -> str:
-        """Get configured host.
-        
-        Returns:
-            Host string
-        """
-        return self._host
+        """Get configured host."""
+        return get_host()
     
     def get_port(self) -> int:
-        """Get configured port.
-        
-        Returns:
-            Port number
-        """
-        return self._port
+        """Get configured port."""
+        return get_port()
     
-    def get_error_count(self) -> int:
-        """Get the number of connection errors encountered.
-        
-        Returns:
-            Error count
-        """
-        return self._error_count
+    def disconnect(self):
+        """Disconnect."""
+        disconnect()
     
-    def reset_error_count(self) -> None:
-        """Reset the error counter."""
-        self._error_count = 0
+    def configure(self, host=None, port=None, mock_mode=None):
+        """Deprecated - configuration is via environment variables."""
+        logger.warning("configure() is deprecated - use environment variables")
     
-    def increment_error_count(self) -> None:
-        """Increment the error counter.
-        
-        This should be called by drivers when they encounter errors.
-        """
-        self._error_count += 1
-    
-    @classmethod
-    def reset_singleton(cls) -> None:
-        """Reset the singleton instance (mainly for testing).
-        
-        Warning: This will disconnect and destroy the current instance.
-        Use with caution in production code.
-        """
-        with cls._lock:
-            if cls._instance is not None:
-                cls._instance.disconnect()
-                cls._instance = None
+    def increment_error_count(self):
+        """Deprecated."""
+        pass
