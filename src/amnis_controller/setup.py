@@ -34,7 +34,6 @@ setup(
             'brake_controller_node = amnis_controller.brake_controller_node:main',
             'powertrain_controller_node = amnis_controller.powertrain_controller_node:main',
             'topic_aggregator_node = amnis_controller.topic_aggregator_node:main',
-            'sensor_input_node = amnis_controller.sensor_input_node:main',
         ],
     },
 )
