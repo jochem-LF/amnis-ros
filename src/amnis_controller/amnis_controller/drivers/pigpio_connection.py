@@ -30,60 +30,87 @@ def _initialize_connection():
     """Initialize the module-level pigpio connection."""
     global _pi, _connected
     
-    print("=" * 60)
-    print(f"[PigpioConnection] Module Initializing")
-    print(f"  Host: {PIGPIO_HOST}")
-    print(f"  Port: {PIGPIO_PORT}")
-    print(f"  Mock Mode: {PIGPIO_MOCK_MODE}")
-    print("=" * 60)
+    import sys
+    
+    print("=" * 60, flush=True)
+    print(f"[PigpioConnection] Module Initializing", flush=True)
+    print(f"  Host: {PIGPIO_HOST}", flush=True)
+    print(f"  Port: {PIGPIO_PORT}", flush=True)
+    print(f"  Mock Mode: {PIGPIO_MOCK_MODE}", flush=True)
+    print("=" * 60, flush=True)
+    sys.stdout.flush()
     
     if PIGPIO_MOCK_MODE:
-        print(f"[PigpioConnection] Running in MOCK mode")
+        print(f"[PigpioConnection] Running in MOCK mode", flush=True)
         logger.info("Running in MOCK mode - no actual pigpio connection")
         _connected = True
         _pi = None
         return
     
     try:
+        print(f"[PigpioConnection] Importing pigpio library...", flush=True)
+        sys.stdout.flush()
         import pigpio
+        print(f"[PigpioConnection] pigpio library imported successfully", flush=True)
+        sys.stdout.flush()
         
-        print("=" * 60)
-        print(f"[PigpioConnection] Connecting to pigpiod...")
-        print(f"  Target IP: {PIGPIO_HOST}")
-        print(f"  Target Port: {PIGPIO_PORT}")
-        print("=" * 60)
+        print("=" * 60, flush=True)
+        print(f"[PigpioConnection] Connecting to pigpiod...", flush=True)
+        print(f"  Target IP: {PIGPIO_HOST}", flush=True)
+        print(f"  Target Port: {PIGPIO_PORT}", flush=True)
+        print("=" * 60, flush=True)
+        sys.stdout.flush()
         
+        print(f"[PigpioConnection] Calling pigpio.pi()...", flush=True)
+        sys.stdout.flush()
         _pi = pigpio.pi(PIGPIO_HOST, PIGPIO_PORT)
+        print(f"[PigpioConnection] pigpio.pi() returned", flush=True)
+        sys.stdout.flush()
+        
+        print(f"[PigpioConnection] Checking connection status...", flush=True)
+        sys.stdout.flush()
         
         if _pi.connected:
             _connected = True
-            print("=" * 60)
-            print(f"[PigpioConnection] ✓ SUCCESS: Connected to pigpiod")
-            print(f"  Remote Host: {PIGPIO_HOST}:{PIGPIO_PORT}")
-            print("=" * 60)
+            print("=" * 60, flush=True)
+            print(f"[PigpioConnection] ✓ SUCCESS: Connected to pigpiod", flush=True)
+            print(f"  Remote Host: {PIGPIO_HOST}:{PIGPIO_PORT}", flush=True)
+            print("=" * 60, flush=True)
+            sys.stdout.flush()
             logger.info(f"✓ Connected to pigpiod at {PIGPIO_HOST}:{PIGPIO_PORT}")
         else:
             _connected = False
-            print("=" * 60)
-            print(f"[PigpioConnection] ✗ FAILED: Could not connect")
-            print(f"  Target: {PIGPIO_HOST}:{PIGPIO_PORT}")
-            print(f"  Make sure pigpiod is running: sudo pigpiod")
-            print("=" * 60)
+            print("=" * 60, flush=True)
+            print(f"[PigpioConnection] ✗ FAILED: Could not connect", flush=True)
+            print(f"  Target: {PIGPIO_HOST}:{PIGPIO_PORT}", flush=True)
+            print(f"  Make sure pigpiod is running: sudo pigpiod", flush=True)
+            print("=" * 60, flush=True)
+            sys.stdout.flush()
             logger.error(f"Failed to connect to pigpiod at {PIGPIO_HOST}:{PIGPIO_PORT}")
             
     except ImportError:
-        print("[PigpioConnection] ERROR: pigpio library not installed")
-        print("  Install with: pip install pigpio")
+        print("[PigpioConnection] ERROR: pigpio library not installed", flush=True)
+        print("  Install with: pip install pigpio", flush=True)
+        sys.stdout.flush()
         logger.error("pigpio library not installed")
         _connected = False
     except Exception as e:
-        print(f"[PigpioConnection] ERROR: {e}")
+        print(f"[PigpioConnection] ERROR: {e}", flush=True)
+        sys.stdout.flush()
         logger.error(f"Failed to connect to pigpiod: {e}")
         _connected = False
 
 # Connect immediately when module is imported
-print("[PigpioConnection] Module imported - initializing connection...")
+import sys
+print("\n" + "=" * 60, flush=True)
+print("[PigpioConnection] MODULE BEING IMPORTED NOW!", flush=True)
+print("=" * 60 + "\n", flush=True)
+sys.stdout.flush()
 _initialize_connection()
+print("\n" + "=" * 60, flush=True)
+print("[PigpioConnection] MODULE INITIALIZATION COMPLETE", flush=True)
+print("=" * 60 + "\n", flush=True)
+sys.stdout.flush()
 
 
 def get_pi():
