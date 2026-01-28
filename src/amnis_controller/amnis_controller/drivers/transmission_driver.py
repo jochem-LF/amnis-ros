@@ -115,12 +115,10 @@ class TransmissionDriver:
             self._pi.set_mode(self.enable_reverse_pin, pigpio.OUTPUT)
             self._pi.set_mode(self.external_mode_pin, pigpio.OUTPUT)
             
-            # Initialize to safe state (neutral, external mode off)
-            self._set_gpio_state(
-                disable_neutral=False,
-                enable_reverse=False,
-                external_mode=False
-            )
+            # Set initial safe state directly without using _set_gpio_state (to avoid recursion)
+            self._pi.write(self.disable_neutral_pin, 0)  # LOW = neutral
+            self._pi.write(self.enable_reverse_pin, 0)   # LOW = not reverse
+            self._pi.write(self.external_mode_pin, 0)    # LOW = external mode off
             
             self._connected = True
             self._current_gear = self.GEAR_NEUTRAL
@@ -183,10 +181,8 @@ class TransmissionDriver:
             return True
         
         if not self._connected:
-            self.logger.warning("GPIO not connected, attempting to reconnect...")
-            self._initialize_gpio()
-            if not self._connected:
-                return False
+            self.logger.error("GPIO not connected, cannot set relay state")
+            return False
         
         try:
             # Ensure we have a valid connection
@@ -281,10 +277,8 @@ class TransmissionDriver:
             return True
         
         if not self._connected:
-            self.logger.warning("GPIO not connected, attempting to reconnect...")
-            self._initialize_gpio()
-            if not self._connected:
-                return False
+            self.logger.error("GPIO not connected, cannot set external mode")
+            return False
         
         try:
             # Ensure we have a valid connection

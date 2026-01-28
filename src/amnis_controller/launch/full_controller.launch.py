@@ -137,11 +137,10 @@ def generate_launch_description():
             # Pigpio connection configuration
             'pigpio_host': '192.168.10.2',      # IP of Raspberry Pi running pigpiod
             'pigpio_port': 8888,             # Default pigpiod port
-            # Transmission relay configuration (remote GPIO via pigpio)
+            # Transmission relay configuration (gear control only - external mode in vehicle_controller)
             'enable_transmission_control': True,
             'disable_neutral_pin': 17,       # BCM GPIO 17 (physical pin 11)
             'enable_reverse_pin': 27,        # BCM GPIO 27 (physical pin 13)
-            'external_mode_pin': 23,         # BCM GPIO 23 (physical pin 16)
             # General configuration
             'mock_mode': False,              # Set True for testing without hardware
             'command_timeout_sec': 0.5,

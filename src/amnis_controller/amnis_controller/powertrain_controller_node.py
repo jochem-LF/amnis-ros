@@ -48,11 +48,10 @@ class PowertrainControllerNode(Node):
         self.declare_parameter('pigpio_host', 'localhost')
         self.declare_parameter('pigpio_port', 8888)
         
-        # Transmission relay configuration
+        # Transmission relay configuration (gear control only - external mode controlled by vehicle_controller)
         self.declare_parameter('enable_transmission_control', True)
         self.declare_parameter('disable_neutral_pin', 17)  # BCM GPIO 17
         self.declare_parameter('enable_reverse_pin', 27)   # BCM GPIO 27
-        self.declare_parameter('external_mode_pin', 23)    # BCM GPIO 23
         
         # Safety parameters
         self.declare_parameter('command_timeout_sec', 0.5)  # Cut throttle if no command
@@ -78,7 +77,6 @@ class PowertrainControllerNode(Node):
         enable_transmission_control = self.get_parameter('enable_transmission_control').value
         disable_neutral_pin = self.get_parameter('disable_neutral_pin').value
         enable_reverse_pin = self.get_parameter('enable_reverse_pin').value
-        external_mode_pin = self.get_parameter('external_mode_pin').value
         self.command_timeout = self.get_parameter('command_timeout_sec').value
         self.deadzone = self.get_parameter('deadzone').value
         update_rate = self.get_parameter('update_rate_hz').value
@@ -106,10 +104,12 @@ class PowertrainControllerNode(Node):
         self.transmission_driver = None
         
         if enable_transmission_control:
+            # Note: external_mode_pin is controlled by vehicle_controller, not this node
+            # Use a dummy pin (GPIO 0) that won't be used
             self.transmission_driver = TransmissionDriver(
                 disable_neutral_pin=disable_neutral_pin,
                 enable_reverse_pin=enable_reverse_pin,
-                external_mode_pin=external_mode_pin,
+                external_mode_pin=0,  # Dummy pin, not actually used by this node
                 mock_mode=mock_mode,
                 pigpio_host=pigpio_host,
                 pigpio_port=pigpio_port
