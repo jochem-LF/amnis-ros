@@ -1,0 +1,14 @@
+# Python dependencies for amnis_controller
+
+# I2C communication for Jetson Orin and Raspberry Pi
+smbus2>=0.4.0
+
+# CAN bus communication for EHB brake system
+python-can>=4.0.0
+
+# GPIO and PWM control for Jetson platforms
+Jetson.GPIO>=2.0.0
+
+# WebSocket server for frontend data bridge
+websockets>=11.0,<12.0
+
