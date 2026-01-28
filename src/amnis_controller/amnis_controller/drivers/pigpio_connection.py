@@ -49,7 +49,7 @@ class PigpioConnection:
         self._initialized = True
         self._pi = None
         # Read from environment variables (set once at system level)
-        self._host = os.environ.get('PIGPIO_HOST', '192.168.10.2')
+        self._host = os.environ.get('PIGPIO_HOST', 'localhost')
         self._port = int(os.environ.get('PIGPIO_PORT', '8888'))
         self._mock_mode = os.environ.get('PIGPIO_MOCK_MODE', 'false').lower() == 'true'
         self._connected = False
@@ -58,9 +58,13 @@ class PigpioConnection:
         
         self.logger = logging.getLogger('PigpioConnection')
         self.logger.info(
-            f"PigpioConnection singleton initialized from environment: "
+            f"PigpioConnection singleton initialized: "
             f"host={self._host}, port={self._port}, mock_mode={self._mock_mode}"
         )
+        
+        # Connect immediately (like the working example)
+        if not self._mock_mode:
+            self.connect()
     
     def configure(
         self,
@@ -109,15 +113,9 @@ class PigpioConnection:
             True if connected successfully, False otherwise
         """
         with self._connection_lock:
-            # If already connected, return success
-            if self._connected and self._pi is not None:
-                if not self._mock_mode and self._pi.connected:
-                    return True
-                elif self._mock_mode:
-                    return True
-            
-            # Disconnect any existing connection
-            self._disconnect_internal()
+            # If already connected, check if still alive
+            if self._pi is not None and self._pi.connected:
+                return True
             
             if self._mock_mode:
                 self.logger.info("Running in MOCK mode - no actual pigpio connection")
@@ -129,21 +127,21 @@ class PigpioConnection:
                 import pigpio
                 
                 self.logger.info(f"Connecting to pigpiod at {self._host}:{self._port}...")
+                
+                # Simple connection - just like the working example
                 self._pi = pigpio.pi(self._host, self._port)
                 
-                if not self._pi.connected:
+                if self._pi.connected:
+                    self._connected = True
+                    self.logger.info(f"✓ Connected to pigpiod at {self._host}:{self._port}")
+                    return True
+                else:
                     self.logger.error(
-                        f"Failed to connect to pigpiod at {self._host}:{self._port}. "
-                        "Make sure pigpiod is running on the remote Raspberry Pi."
+                        f"✗ Failed to connect to pigpiod at {self._host}:{self._port}. "
+                        "Make sure pigpiod is running: sudo pigpiod"
                     )
-                    self._pi.stop()
-                    self._pi = None
                     self._connected = False
                     return False
-                
-                self._connected = True
-                self.logger.info(f"Successfully connected to pigpiod at {self._host}:{self._port}")
-                return True
                 
             except ImportError:
                 self.logger.error(
@@ -156,22 +154,18 @@ class PigpioConnection:
                 self._connected = False
                 return False
     
-    def _disconnect_internal(self) -> None:
-        """Internal disconnect without lock (assumes lock is held)."""
-        if self._pi is not None and not self._mock_mode:
-            try:
-                self._pi.stop()
-                self.logger.info("Disconnected from pigpiod")
-            except Exception as e:
-                self.logger.error(f"Error disconnecting from pigpiod: {e}")
-        
-        self._pi = None
-        self._connected = False
-    
     def disconnect(self) -> None:
         """Disconnect from pigpio daemon."""
         with self._connection_lock:
-            self._disconnect_internal()
+            if self._pi is not None and not self._mock_mode:
+                try:
+                    self._pi.stop()
+                    self.logger.info("Disconnected from pigpiod")
+                except Exception as e:
+                    self.logger.error(f"Error disconnecting: {e}")
+            
+            self._pi = None
+            self._connected = False
     
     def get_pi(self):
         """Get the pigpio.pi instance.
@@ -183,23 +177,20 @@ class PigpioConnection:
             In mock mode, returns None. Callers should check is_mock_mode()
             to determine if they should simulate operations.
         """
-        with self._connection_lock:
-            if not self._connected:
-                self.logger.warning("Not connected, attempting to connect...")
-                if not self.connect():
-                    return None
-            
-            # In mock mode, return None (callers should check is_mock_mode)
-            if self._mock_mode:
-                return None
-            
-            # Check if connection is still alive
-            if self._pi is not None and not self._pi.connected:
-                self.logger.warning("Connection lost, attempting to reconnect...")
-                if not self.connect():
-                    return None
-            
+        # In mock mode, return None (callers should check is_mock_mode)
+        if self._mock_mode:
+            return None
+        
+        # Simple: if we have a connection and it's alive, return it
+        if self._pi is not None and self._pi.connected:
             return self._pi
+        
+        # Otherwise, try to reconnect
+        self.logger.warning("Connection lost or not established, reconnecting...")
+        if self.connect():
+            return self._pi
+        
+        return None
     
     def is_connected(self) -> bool:
         """Check if connected to pigpio daemon.
@@ -207,14 +198,11 @@ class PigpioConnection:
         Returns:
             True if connected (or in mock mode), False otherwise
         """
-        with self._connection_lock:
-            if self._mock_mode:
-                return self._connected
-            
-            if self._pi is None:
-                return False
-            
-            return self._connected and self._pi.connected
+        if self._mock_mode:
+            return True
+        
+        # Simple check: do we have a pi object and is it connected?
+        return self._pi is not None and self._pi.connected
     
     def is_mock_mode(self) -> bool:
         """Check if running in mock mode.
