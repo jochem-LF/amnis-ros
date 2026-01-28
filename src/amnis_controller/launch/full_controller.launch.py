@@ -45,7 +45,7 @@ def generate_launch_description():
             'trigger_axes': [2],
             'deadzone': 0.05,
             'log_throttle_sec': 0.5,
-            'verbose': False,  # Set to True to enable debug logging for this node
+            'verbose': True,  # Set to True to enable debug logging for this node
         }]
     )
     
@@ -69,7 +69,7 @@ def generate_launch_description():
             'pigpio_port': 8888,            # Default pigpiod port
             'mock_mode': False,             # Set True for testing without hardware
             'log_throttle_sec': 0.5,
-            'verbose': False,  # Set to True to enable debug logging for this node
+            'verbose': True,  # Set to True to enable debug logging for this node
         }]
     )
     
@@ -95,7 +95,7 @@ def generate_launch_description():
             'steer_to_power_scale': 100.0,
             'publish_diagnostics': True,
             'log_throttle_sec': 1.0,
-            'verbose': False,  # Set to True to enable debug logging for this node
+            'verbose': True,  # Set to True to enable debug logging for this node
         }]
     )
     
@@ -117,7 +117,7 @@ def generate_launch_description():
             'update_rate_hz': 10.0,
             'publish_diagnostics': True,
             'log_throttle_sec': 1.0,
-            'verbose': False,  # Set to True to enable debug logging for this node
+            'verbose': True,  # Set to True to enable debug logging for this node
         }]
     )
     
@@ -149,7 +149,7 @@ def generate_launch_description():
             'update_rate_hz': 20.0,
             'publish_diagnostics': True,
             'log_throttle_sec': 1.0,
-            'verbose': False,  # Set to True to enable debug logging for this node
+            'verbose': True,  # Set to True to enable debug logging for this node
         }]
     )
     
