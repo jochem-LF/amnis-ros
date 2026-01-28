@@ -184,20 +184,18 @@ class PWMDriver:
         Returns:
             True if successful, False otherwise
         """
-        if self.mock_mode or self._pigpio_conn.is_mock_mode():
+        if self.mock_mode:
             self.logger.debug(f"MOCK: Setting PWM duty cycle to {duty_cycle:.1f}%")
             return True
         
         if not self._connected:
-            self.logger.warning("GPIO not connected, attempting to reconnect...")
-            self._initialize_gpio()
-            if not self._connected:
-                return False
+            self.logger.error("GPIO not connected. Please restart the node.")
+            return False
         
         try:
             # Check if connection is still valid
             if self._pi is None or not self._pi.connected:
-                self.logger.error("Lost pigpio connection")
+                self.logger.error("Lost pigpio connection. Please restart the node.")
                 self._connected = False
                 return False
             

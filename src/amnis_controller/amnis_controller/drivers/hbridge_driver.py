@@ -105,7 +105,7 @@ class HBridgeDriver:
                     f"Failed to open I2C bus {self.i2c_bus} at address 0x{self.i2c_address:02x}"
                 )
                 self._connected = False
-                self._pigpio_conn.increment_error_count()
+                self._error_count += 1
                 return False
             
             self._connected = True
@@ -237,24 +237,21 @@ class HBridgeDriver:
             return True
         
         if not self._connected:
-            self.logger.warning("I2C not connected, attempting to reconnect...")
-            self._initialize_i2c()
-            if not self._connected:
-                return False
+            self.logger.error("I2C not connected. Please restart the node.")
+            return False
         
         try:
             # Check if connection is still valid
             if self._pi is None or not self._pi.connected:
-                self.logger.error("Lost pigpio connection")
+                self.logger.error("Lost pigpio connection. Please restart the node.")
                 self._connected = False
                 return False
             
             # Verify handle is still valid
             if self._i2c_handle is None or self._i2c_handle < 0:
-                self.logger.error("Invalid I2C handle, attempting to reconnect...")
-                self._initialize_i2c()
-                if not self._connected:
-                    return False
+                self.logger.error("Invalid I2C handle. Please restart the node.")
+                self._connected = False
+                return False
             
             # Send to H-bridge via I2C (original protocol)
             # Register 0: Direction (0=stop, 1=right, 2=left)

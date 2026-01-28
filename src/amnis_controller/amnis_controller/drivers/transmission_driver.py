@@ -186,15 +186,13 @@ class TransmissionDriver:
             return True
         
         if not self._connected:
-            self.logger.warning("GPIO not connected, attempting to reconnect...")
-            self._initialize_gpio()
-            if not self._connected:
-                return False
+            self.logger.error("GPIO not connected. Please restart the node.")
+            return False
         
         try:
             # Check if connection is still valid
             if self._pi is None or not self._pi.connected:
-                self.logger.error("Lost pigpio connection")
+                self.logger.error("Lost pigpio connection. Please restart the node.")
                 self._connected = False
                 return False
             
@@ -281,15 +279,13 @@ class TransmissionDriver:
             return True
         
         if not self._connected:
-            self.logger.warning("GPIO not connected, attempting to reconnect...")
-            self._initialize_gpio()
-            if not self._connected:
-                return False
+            self.logger.error("GPIO not connected. Please restart the node.")
+            return False
         
         try:
             # Check if connection is still valid
             if self._pi is None or not self._pi.connected:
-                self.logger.error("Lost pigpio connection")
+                self.logger.error("Lost pigpio connection. Please restart the node.")
                 self._connected = False
                 return False
             
