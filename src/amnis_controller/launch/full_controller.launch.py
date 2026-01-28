@@ -70,7 +70,7 @@ def generate_launch_description():
             'steer_min_voltage': 0.3,  # TODO: Calibrate - voltage at full left
             'steer_max_voltage': 3.2,  # TODO: Calibrate - voltage at full right
             # Operational parameters
-            'update_rate_hz': 20.0,
+            'update_rate_hz': 5,
             'pigpio_host': '192.168.10.2',
             'pigpio_port': 8888,
             'mock_mode': False,
