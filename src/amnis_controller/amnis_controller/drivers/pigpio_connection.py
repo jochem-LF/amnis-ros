@@ -49,7 +49,7 @@ class PigpioConnection:
         self._initialized = True
         self._pi = None
         # Read from environment variables (set once at system level)
-        self._host = os.environ.get('PIGPIO_HOST', 'localhost')
+        self._host = os.environ.get('PIGPIO_HOST', '192.168.10.2')
         self._port = int(os.environ.get('PIGPIO_PORT', '8888'))
         self._mock_mode = os.environ.get('PIGPIO_MOCK_MODE', 'false').lower() == 'true'
         self._connected = False
