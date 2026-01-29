@@ -18,7 +18,7 @@ from typing import Optional
 import rclpy
 from rclpy.node import Node
 
-from amnis_controller.msg import JoystickCommand, PowertrainCommand, SteerCommand, BrakeCommand
+from amnis_controller.msg import JoystickCommand, PowertrainCommand, SteerCommand, BrakeCommand, SensorData
 from amnis_controller.drivers import TransmissionDriver
 
 
@@ -46,6 +46,7 @@ class VehicleControllerNode(Node):
 
         # Declare parameters
         self.declare_parameter('input_topic', 'vehicle_controller_command')
+        self.declare_parameter('sensor_topic', 'sensor_data')
         self.declare_parameter('powertrain_topic', 'powertrain_command')
         self.declare_parameter('steer_topic', 'steer_command')
         self.declare_parameter('brake_topic', 'brake_command')
@@ -53,6 +54,11 @@ class VehicleControllerNode(Node):
         
         # Initial vehicle state
         self.declare_parameter('initial_state', 'EXTERNAL')  # MANUAL, EXTERNAL, IMMOBILIZED, EHB_ERROR
+        
+        # Gas pedal override parameters
+        self.declare_parameter('enable_gas_override', True)
+        self.declare_parameter('gas_override_threshold', 0.15)
+        self.declare_parameter('verbose_override', True)
         
         # External mode relay configuration
         self.declare_parameter('enable_external_mode_control', True)
@@ -67,10 +73,14 @@ class VehicleControllerNode(Node):
 
         # Get parameter values
         self._input_topic = self.get_parameter('input_topic').value
+        self._sensor_topic = self.get_parameter('sensor_topic').value
         self._powertrain_topic = self.get_parameter('powertrain_topic').value
         self._steer_topic = self.get_parameter('steer_topic').value
         self._brake_topic = self.get_parameter('brake_topic').value
         queue_size = int(self.get_parameter('queue_size').value)
+        self._enable_gas_override = self.get_parameter('enable_gas_override').value
+        self._gas_override_threshold = self.get_parameter('gas_override_threshold').value
+        self._verbose_override = self.get_parameter('verbose_override').value
         initial_state_str = self.get_parameter('initial_state').value
         enable_external_mode_control = self.get_parameter('enable_external_mode_control').value
         external_mode_pin = self.get_parameter('external_mode_pin').value
@@ -120,6 +130,9 @@ class VehicleControllerNode(Node):
         
         # Store the last received joystick command
         self._last_joystick_cmd: Optional[JoystickCommand] = None
+        
+        # Gas pedal override tracking
+        self._last_gas_pedal = 0.0
 
         # Create publishers for the 3 vehicle subsystems
         self._powertrain_publisher = self.create_publisher(
@@ -147,13 +160,26 @@ class VehicleControllerNode(Node):
             self._joystick_callback,
             queue_size
         )
+        
+        # Create subscription to sensor data for gas pedal override
+        self._sensor_subscription = self.create_subscription(
+            SensorData,
+            self._sensor_topic,
+            self._sensor_callback,
+            queue_size
+        )
 
         # Log startup message
         if self.verbose:
+            override_status = f", gas_override={'ON' if self._enable_gas_override else 'OFF'}"
+            if self._enable_gas_override:
+                override_status += f" (threshold={self._gas_override_threshold:.2f})"
+            
             self.get_logger().info(
                 f"Vehicle controller ready (state={self._current_state.name}, "
-                f"input={self._input_topic}, outputs=[powertrain={self._powertrain_topic}, "
-                f"steer={self._steer_topic}, brake={self._brake_topic}])"
+                f"input={self._input_topic}, sensor={self._sensor_topic}, "
+                f"outputs=[powertrain={self._powertrain_topic}, "
+                f"steer={self._steer_topic}, brake={self._brake_topic}]{override_status})"
             )
 
     def _update_state_machine(self) -> None:
@@ -212,6 +238,52 @@ class VehicleControllerNode(Node):
 
         return powertrain_cmd, steer_cmd, brake_cmd
 
+    def _sensor_callback(self, msg: SensorData) -> None:
+        """Handle incoming sensor data messages for gas pedal override.
+        
+        This callback monitors the gas pedal position and automatically
+        switches from EXTERNAL to MANUAL mode if a significant change
+        is detected, allowing the driver to take manual control.
+        
+        Args:
+            msg: SensorData message containing gas pedal and steering wheel positions
+        """
+        # Only process if gas override is enabled
+        if not self._enable_gas_override:
+            return
+        
+        # Get current gas pedal value
+        current_gas = msg.gas_pedal
+        
+        # Skip if sensor reading is invalid
+        if current_gas is None or current_gas < 0:
+            return
+        
+        # Check for manual override only in EXTERNAL mode
+        if self._current_state == VehicleState.EXTERNAL:
+            gas_change = abs(current_gas - self._last_gas_pedal)
+            
+            # Trigger override if change exceeds threshold
+            if gas_change > self._gas_override_threshold:
+                if self._verbose_override:
+                    self.get_logger().warning(
+                        f"Gas pedal override detected! Change: {gas_change:.3f} "
+                        f"(threshold: {self._gas_override_threshold:.3f}) - "
+                        "switching to MANUAL mode"
+                    )
+                
+                # Switch to MANUAL mode
+                self._current_state = VehicleState.MANUAL
+                
+                # Disable external mode relay
+                if self.enable_external_mode_control and self.transmission_driver is not None:
+                    self.transmission_driver.set_external_mode(False)
+                    if self._verbose_override:
+                        self.get_logger().info("External mode relay disabled")
+        
+        # Update last gas pedal value
+        self._last_gas_pedal = current_gas
+    
     def _joystick_callback(self, msg: JoystickCommand) -> None:
         """Handle incoming joystick command messages.
         
@@ -259,6 +331,10 @@ class VehicleControllerNode(Node):
         if getattr(self, '_subscription', None) is not None:
             self.destroy_subscription(self._subscription)
             self._subscription = None
+        
+        if getattr(self, '_sensor_subscription', None) is not None:
+            self.destroy_subscription(self._sensor_subscription)
+            self._sensor_subscription = None
         
         if getattr(self, '_powertrain_publisher', None) is not None:
             self.destroy_publisher(self._powertrain_publisher)

@@ -58,6 +58,7 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'input_topic': 'vehicle_controller_command',
+            'sensor_topic': 'sensor_data',
             'powertrain_topic': 'powertrain_command',
             'steer_topic': 'steer_command',
             'brake_topic': 'brake_command',
@@ -69,6 +70,10 @@ def generate_launch_description():
             'pigpio_host': '192.168.10.2',     # IP of Raspberry Pi running pigpiod
             'pigpio_port': 8888,            # Default pigpiod port
             'mock_mode': False,             # Set True for testing without hardware
+            # Gas pedal override configuration
+            'enable_gas_override': True,    # Enable automatic EXTERNAL→MANUAL on gas pedal press
+            'gas_override_threshold': 0.15, # 15% change triggers override
+            'verbose_override': True,       # Log override events
             'log_throttle_sec': 0.5,
             'verbose': False,  # Logging disabled
         }]
