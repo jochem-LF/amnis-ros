@@ -178,7 +178,7 @@ def generate_launch_description():
             'auto_calibrate': False,         # Set True to auto-calibrate at startup
             'calibration_duration_sec': 10.0,# Auto-calibration duration
             # Control
-            'update_rate_hz': 50.0,          # Sensor reading rate
+            'update_rate_hz': 20.0,          # Sensor reading rate (lower to reduce I2C bus contention)
             # Diagnostics
             'publish_diagnostics': True,
             'log_throttle_sec': 1.0,

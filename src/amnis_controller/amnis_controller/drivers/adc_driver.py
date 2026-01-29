@@ -15,6 +15,7 @@ Hardware Configuration:
 from typing import Optional, Tuple
 import logging
 import time
+import threading
 from .pigpio_connection import PigpioConnection
 
 
@@ -102,6 +103,7 @@ class ADCDriver:
         self._i2c_handle = None
         self._connected = False
         self._error_count = 0
+        self._i2c_lock = threading.Lock()  # Mutex for I2C operations
         
         # Calibration data - use provided values or defaults
         self._gas_min = gas_min if gas_min is not None else 0
@@ -201,29 +203,32 @@ class ADCDriver:
             self.logger.error("I2C not connected, cannot write config")
             return False
         
-        try:
-            # Ensure we have a valid connection
-            self._pi = self._pigpio_conn.get_pi()
-            if self._pi is None or self._i2c_handle is None:
-                self.logger.error("Lost pigpio connection")
+        with self._i2c_lock:  # Lock I2C bus access
+            try:
+                # Ensure we have a valid connection
+                self._pi = self._pigpio_conn.get_pi()
+                if self._pi is None or self._i2c_handle is None:
+                    self.logger.error("Lost pigpio connection")
+                    self._connected = False
+                    self._pigpio_conn.increment_error_count()
+                    return False
+                
+                # pigpio expects word data in host byte order, it handles the conversion
+                # However, we need to swap bytes for ADS1015L (MSB first)
+                msb = (config >> 8) & 0xFF
+                lsb = config & 0xFF
+                swapped = (lsb << 8) | msb
+                
+                self._pi.i2c_write_word_data(self._i2c_handle, self.REG_CONFIG, swapped)
+                # Small delay to let I2C bus settle (reduces contention with H-bridge)
+                time.sleep(0.001)  # 1ms
+                return True
+                
+            except Exception as e:
+                self.logger.error(f"Failed to write config: {e}")
                 self._connected = False
                 self._pigpio_conn.increment_error_count()
                 return False
-            
-            # pigpio expects word data in host byte order, it handles the conversion
-            # However, we need to swap bytes for ADS1015L (MSB first)
-            msb = (config >> 8) & 0xFF
-            lsb = config & 0xFF
-            swapped = (lsb << 8) | msb
-            
-            self._pi.i2c_write_word_data(self._i2c_handle, self.REG_CONFIG, swapped)
-            return True
-            
-        except Exception as e:
-            self.logger.error(f"Failed to write config: {e}")
-            self._connected = False
-            self._pigpio_conn.increment_error_count()
-            return False
     
     def _read_conversion(self) -> Optional[int]:
         """Read 16-bit conversion result from conversion register.
@@ -240,34 +245,37 @@ class ADCDriver:
             self.logger.error("I2C not connected, cannot read conversion")
             return None
         
-        try:
-            # Ensure we have a valid connection
-            self._pi = self._pigpio_conn.get_pi()
-            if self._pi is None or self._i2c_handle is None:
-                self.logger.error("Lost pigpio connection")
+        with self._i2c_lock:  # Lock I2C bus access
+            try:
+                # Ensure we have a valid connection
+                self._pi = self._pigpio_conn.get_pi()
+                if self._pi is None or self._i2c_handle is None:
+                    self.logger.error("Lost pigpio connection")
+                    self._connected = False
+                    self._pigpio_conn.increment_error_count()
+                    return None
+                
+                # Read 16-bit word from conversion register
+                raw = self._pi.i2c_read_word_data(self._i2c_handle, self.REG_CONVERSION)
+                
+                # Swap bytes (pigpio returns in host order, we need MSB first)
+                msb = raw & 0xFF
+                lsb = (raw >> 8) & 0xFF
+                result = (msb << 8) | lsb
+                
+                # ADS1015L result is 12-bit, left-aligned in 16-bit register
+                # Shift right by 4 to get 12-bit value
+                value = result >> 4
+                
+                # Small delay to let I2C bus settle (reduces contention with H-bridge)
+                time.sleep(0.001)  # 1ms
+                return value
+                
+            except Exception as e:
+                self.logger.error(f"Failed to read conversion: {e}")
                 self._connected = False
                 self._pigpio_conn.increment_error_count()
                 return None
-            
-            # Read 16-bit word from conversion register
-            raw = self._pi.i2c_read_word_data(self._i2c_handle, self.REG_CONVERSION)
-            
-            # Swap bytes (pigpio returns in host order, we need MSB first)
-            msb = raw & 0xFF
-            lsb = (raw >> 8) & 0xFF
-            result = (msb << 8) | lsb
-            
-            # ADS1015L result is 12-bit, left-aligned in 16-bit register
-            # Shift right by 4 to get 12-bit value
-            value = result >> 4
-            
-            return value
-            
-        except Exception as e:
-            self.logger.error(f"Failed to read conversion: {e}")
-            self._connected = False
-            self._pigpio_conn.increment_error_count()
-            return None
     
     def read_raw(self, channel: int) -> Optional[int]:
         """Read raw ADC value from specified channel.
