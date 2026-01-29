@@ -72,7 +72,7 @@ def generate_launch_description():
             'mock_mode': False,             # Set True for testing without hardware
             # Gas pedal override configuration
             'enable_gas_override': True,    # Enable automatic EXTERNAL→MANUAL on gas pedal press
-            'gas_override_threshold': 0.15, # 15% change triggers override
+            'gas_override_threshold': 0.30, # 15% change triggers override
             'verbose_override': True,       # Log override events
             'log_throttle_sec': 0.5,
             'verbose': False,  # Logging disabled
