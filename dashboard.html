@@ -798,6 +798,7 @@
                 } else if (type.includes('BrakeCommand')) {
                     this.updateBrakeCommand(data);
                 } else if (type.includes('VehicleState')) {
+                    console.log('VehicleState message detected:', name, type, data);
                     this.updateVehicleState(data);
                 }
             }
@@ -847,15 +848,6 @@
                 if ('throttle' in data) {
                     const throttle = Math.max(0, Math.min(100, data.throttle * 100));
                     this.updateGauge('throttleArc', 'throttleValue', throttle);
-                    document.getElementById('throttleInputValue').textContent = throttle.toFixed(0) + '%';
-                    document.getElementById('throttleInputBar').style.width = throttle + '%';
-                }
-
-                if ('steer' in data) {
-                    const steer = data.steer * 100; // -100 to +100
-                    document.getElementById('steerInputValue').textContent = steer.toFixed(0) + '%';
-                    const barWidth = Math.abs(steer);
-                    document.getElementById('steerInputBar').style.width = barWidth + '%';
                 }
 
                 if ('brake' in data) {
@@ -866,49 +858,28 @@
                 if ('gear' in data) {
                     const gearMap = { '-1': 'R', '0': 'N', '1': 'D' };
                     const gearText = gearMap[String(data.gear)] || 'U';
-                    document.getElementById('gearDisplay').textContent = gearText;
-                    document.getElementById('modeValue').textContent = gearText;
-                }
-            }
-
-            updatePowertrainCommand(data) {
-                // Display motor power
-                if ('power' in data) {
-                    const power = Math.max(0, Math.min(100, Math.abs(data.power) * 100));
-                    document.getElementById('motorLeftValue').textContent = power.toFixed(0);
-                    document.getElementById('motorRightValue').textContent = power.toFixed(0);
-                    document.getElementById('powerOutput').textContent = power.toFixed(0) + '%';
-                    document.getElementById('powerBar').style.width = power + '%';
-
-                    if (power > 5) {
-                        document.getElementById('motorLeft').classList.add('active');
-                        document.getElementById('motorRight').classList.add('active');
-                    } else {
-                        document.getElementById('motorLeft').classList.remove('active');
-                        document.getElementById('motorRight').classList.remove('active');
+                    const gearElement = document.getElementById('gearDisplay');
+                    if (gearElement) {
+                        gearElement.textContent = gearText;
                     }
                 }
             }
 
+            updatePowertrainCommand(data) {
+                // Powertrain details not shown on main page
+            }
+
             updateSteerCommand(data) {
-                // Already handled by JoystickCommand, but can add extra diagnostics
-                if ('command' in data) {
-                    const command = data.command * 100;
-                    document.getElementById('steerInputValue').textContent = command.toFixed(0) + '%';
-                    const barWidth = Math.abs(command);
-                    document.getElementById('steerInputBar').style.width = barWidth + '%';
-                }
+                // Steer details not shown on main page
             }
 
             updateBrakeCommand(data) {
-                // Already handled by JoystickCommand, but can add extra diagnostics
-                if ('command' in data) {
-                    const brake = Math.max(0, Math.min(100, Math.abs(data.command) * 100));
-                    this.updateGauge('brakeArc', 'brakeValue', brake);
-                }
+                // Brake details not shown on main page
             }
 
             updateVehicleState(data) {
+                console.log('Vehicle state update received:', data);
+                
                 // Update current state tracking
                 if ('state' in data) {
                     this.currentVehicleState = data.state;
@@ -923,6 +894,10 @@
                         
                         // Add current state class for color coding
                         stateElement.classList.add(`state-${data.state}`);
+                        
+                        console.log('Updated vehicle state display to:', data.state);
+                    } else {
+                        console.error('Vehicle state element not found!');
                     }
                 }
                 
@@ -933,8 +908,10 @@
                     if (button) {
                         if (this.canSwitchToExternal && this.currentVehicleState === 'MANUAL') {
                             button.classList.remove('hidden');
+                            console.log('Show switch to external button');
                         } else {
                             button.classList.add('hidden');
+                            console.log('Hide switch to external button');
                         }
                     }
                 }
