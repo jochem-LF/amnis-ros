@@ -57,7 +57,8 @@ class VehicleControllerNode(Node):
         
         # Gas pedal override parameters
         self.declare_parameter('enable_gas_override', True)
-        self.declare_parameter('gas_override_threshold', 0.15)
+        self.declare_parameter('gas_override_raw_min', 500)   # Trigger if raw > this
+        self.declare_parameter('gas_override_raw_max', 1500)  # Trigger if raw < this
         self.declare_parameter('verbose_override', True)
         
         # External mode relay configuration
@@ -79,7 +80,8 @@ class VehicleControllerNode(Node):
         self._brake_topic = self.get_parameter('brake_topic').value
         queue_size = int(self.get_parameter('queue_size').value)
         self._enable_gas_override = self.get_parameter('enable_gas_override').value
-        self._gas_override_threshold = self.get_parameter('gas_override_threshold').value
+        self._gas_override_raw_min = self.get_parameter('gas_override_raw_min').value
+        self._gas_override_raw_max = self.get_parameter('gas_override_raw_max').value
         self._verbose_override = self.get_parameter('verbose_override').value
         initial_state_str = self.get_parameter('initial_state').value
         enable_external_mode_control = self.get_parameter('enable_external_mode_control').value
@@ -131,9 +133,8 @@ class VehicleControllerNode(Node):
         # Store the last received joystick command
         self._last_joystick_cmd: Optional[JoystickCommand] = None
         
-        # Gas pedal override tracking
-        self._last_gas_pedal = None  # Will be initialized on first reading
-        self._override_initialized = False
+        # Gas pedal override tracking (no longer needed for raw value checking)
+        self._override_active = False  # Track if override already triggered
 
         # Create publishers for the 3 vehicle subsystems
         self._powertrain_publisher = self.create_publisher(
@@ -174,7 +175,7 @@ class VehicleControllerNode(Node):
         if self.verbose:
             override_status = f", gas_override={'ON' if self._enable_gas_override else 'OFF'}"
             if self._enable_gas_override:
-                override_status += f" (threshold={self._gas_override_threshold:.2f})"
+                override_status += f" (raw range: {self._gas_override_raw_min}-{self._gas_override_raw_max})"
             
             self.get_logger().info(
                 f"Vehicle controller ready (state={self._current_state.name}, "
@@ -242,9 +243,9 @@ class VehicleControllerNode(Node):
     def _sensor_callback(self, msg: SensorData) -> None:
         """Handle incoming sensor data messages for gas pedal override.
         
-        This callback monitors the gas pedal position and automatically
-        switches from EXTERNAL to MANUAL mode if a significant change
-        is detected, allowing the driver to take manual control.
+        This callback monitors the gas pedal RAW position and automatically
+        switches from EXTERNAL to MANUAL mode if the value is in the active
+        range (500-1500), indicating the driver is pressing the pedal.
         
         Args:
             msg: SensorData message containing gas pedal and steering wheel positions
@@ -253,45 +254,31 @@ class VehicleControllerNode(Node):
         if not self._enable_gas_override:
             return
         
-        # Get current gas pedal value
-        current_gas = msg.gas_pedal
+        # Get raw gas pedal value
+        gas_raw = msg.gas_pedal_raw
         
         # Skip if sensor reading is invalid
-        if current_gas is None or current_gas < 0:
-            return
-        
-        # Initialize baseline on first valid reading
-        if self._last_gas_pedal is None:
-            self._last_gas_pedal = current_gas
-            self._override_initialized = True
-            if self._verbose_override:
-                self.get_logger().info(
-                    f"Gas pedal override initialized (baseline: {current_gas:.3f})"
-                )
-            return
-        
-        # Only check for override after initialization
-        if not self._override_initialized:
+        if gas_raw is None or gas_raw < 0:
             return
         
         # Check for manual override only in EXTERNAL mode
         if self._current_state == VehicleState.EXTERNAL:
-            # Calculate signed change (positive = pressing, negative = releasing)
-            gas_change = current_gas - self._last_gas_pedal
+            # Check if raw value is in the override range
+            in_override_range = (gas_raw > self._gas_override_raw_min and 
+                               gas_raw < self._gas_override_raw_max)
             
-            # Only trigger on POSITIVE change (pressing pedal), not negative (releasing)
-            # This prevents false triggers when pedal value drops (like from 4093→0 on press start)
-            if gas_change > self._gas_override_threshold:
+            # Trigger override if in range
+            if in_override_range and not self._override_active:
                 if self._verbose_override:
                     self.get_logger().warning(
-                        f"Gas pedal override detected! Change: +{gas_change:.3f} "
-                        f"(previous: {self._last_gas_pedal:.3f}, current: {current_gas:.3f}, "
-                        f"threshold: {self._gas_override_threshold:.3f}) - "
+                        f"Gas pedal override detected! Raw value: {gas_raw} "
+                        f"(range: {self._gas_override_raw_min}-{self._gas_override_raw_max}) - "
                         "switching to MANUAL mode"
                     )
                 
                 # Switch to MANUAL mode
                 self._current_state = VehicleState.MANUAL
+                self._override_active = True
                 
                 # Disable external mode relay
                 if self.enable_external_mode_control and self.transmission_driver is not None:
@@ -299,8 +286,9 @@ class VehicleControllerNode(Node):
                     if self._verbose_override:
                         self.get_logger().info("External mode relay disabled")
         
-        # Update last gas pedal value
-        self._last_gas_pedal = current_gas
+        # Reset override flag if not in EXTERNAL mode
+        if self._current_state != VehicleState.EXTERNAL:
+            self._override_active = False
     
     def _joystick_callback(self, msg: JoystickCommand) -> None:
         """Handle incoming joystick command messages.
