@@ -276,13 +276,15 @@ class VehicleControllerNode(Node):
         
         # Check for manual override only in EXTERNAL mode
         if self._current_state == VehicleState.EXTERNAL:
-            gas_change = abs(current_gas - self._last_gas_pedal)
+            # Calculate signed change (positive = pressing, negative = releasing)
+            gas_change = current_gas - self._last_gas_pedal
             
-            # Trigger override if change exceeds threshold
+            # Only trigger on POSITIVE change (pressing pedal), not negative (releasing)
+            # This prevents false triggers when pedal value drops (like from 4093→0 on press start)
             if gas_change > self._gas_override_threshold:
                 if self._verbose_override:
                     self.get_logger().warning(
-                        f"Gas pedal override detected! Change: {gas_change:.3f} "
+                        f"Gas pedal override detected! Change: +{gas_change:.3f} "
                         f"(previous: {self._last_gas_pedal:.3f}, current: {current_gas:.3f}, "
                         f"threshold: {self._gas_override_threshold:.3f}) - "
                         "switching to MANUAL mode"

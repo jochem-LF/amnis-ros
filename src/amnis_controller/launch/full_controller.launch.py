@@ -175,9 +175,9 @@ def generate_launch_description():
             'pigpio_port': 8888,             # Default pigpiod port
             'mock_mode': False,              # Set True for testing without hardware
             # Calibration (set these after calibrating your potentiometers)
-            # Leave at defaults (0, 2047) for full range, or set specific values
-            'gas_pedal_min': 0,              # Raw ADC min value for gas pedal
-            'gas_pedal_max': 2047,           # Raw ADC max value for gas pedal
+            # Gas pedal is inverted: 4093 when not pressed, 0 when pressed
+            'gas_pedal_min': 0,              # Raw ADC min value (fully pressed)
+            'gas_pedal_max': 4093,           # Raw ADC max value (not pressed)
             'steering_wheel_min': 0,         # Raw ADC min value for steering wheel
             'steering_wheel_max': 2047,      # Raw ADC max value for steering wheel
             'auto_calibrate': False,         # Set True to auto-calibrate at startup
