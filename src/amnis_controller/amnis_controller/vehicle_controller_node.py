@@ -132,7 +132,8 @@ class VehicleControllerNode(Node):
         self._last_joystick_cmd: Optional[JoystickCommand] = None
         
         # Gas pedal override tracking
-        self._last_gas_pedal = 0.0
+        self._last_gas_pedal = None  # Will be initialized on first reading
+        self._override_initialized = False
 
         # Create publishers for the 3 vehicle subsystems
         self._powertrain_publisher = self.create_publisher(
@@ -259,6 +260,20 @@ class VehicleControllerNode(Node):
         if current_gas is None or current_gas < 0:
             return
         
+        # Initialize baseline on first valid reading
+        if self._last_gas_pedal is None:
+            self._last_gas_pedal = current_gas
+            self._override_initialized = True
+            if self._verbose_override:
+                self.get_logger().info(
+                    f"Gas pedal override initialized (baseline: {current_gas:.3f})"
+                )
+            return
+        
+        # Only check for override after initialization
+        if not self._override_initialized:
+            return
+        
         # Check for manual override only in EXTERNAL mode
         if self._current_state == VehicleState.EXTERNAL:
             gas_change = abs(current_gas - self._last_gas_pedal)
@@ -268,7 +283,8 @@ class VehicleControllerNode(Node):
                 if self._verbose_override:
                     self.get_logger().warning(
                         f"Gas pedal override detected! Change: {gas_change:.3f} "
-                        f"(threshold: {self._gas_override_threshold:.3f}) - "
+                        f"(previous: {self._last_gas_pedal:.3f}, current: {current_gas:.3f}, "
+                        f"threshold: {self._gas_override_threshold:.3f}) - "
                         "switching to MANUAL mode"
                     )
                 
