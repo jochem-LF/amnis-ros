@@ -200,8 +200,10 @@ class ADCDriver:
             return True
         
         if not self._connected:
-            self.logger.error("I2C not connected, cannot write config")
-            return False
+            # Try to reconnect automatically
+            self._initialize_i2c()
+            if not self._connected:
+                return False
         
         with self._i2c_lock:  # Lock I2C bus access
             try:
@@ -242,8 +244,10 @@ class ADCDriver:
             return random.randint(500, 1500)
         
         if not self._connected:
-            self.logger.error("I2C not connected, cannot read conversion")
-            return None
+            # Try to reconnect automatically
+            self._initialize_i2c()
+            if not self._connected:
+                return None
         
         with self._i2c_lock:  # Lock I2C bus access
             try:

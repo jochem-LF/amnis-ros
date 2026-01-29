@@ -134,52 +134,6 @@ class HBridgeDriver:
             self._pigpio_conn.increment_error_count()
             return False
     
-    def _reset_i2c(self) -> bool:
-        """Reset the I2C connection to recover from error state.
-        
-        This closes the current I2C handle and reopens it, which can
-        help recover from H-bridge error states.
-        
-        Returns:
-            True if reset successful, False otherwise
-        """
-        if self.mock_mode or self._pigpio_conn.is_mock_mode():
-            self.logger.info("MOCK: Resetting I2C connection")
-            return True
-        
-        self.logger.info("Resetting I2C connection...")
-        
-        # Close current handle
-        if self._i2c_handle is not None and self._i2c_handle >= 0:
-            try:
-                if self._pi is not None:
-                    self._pi.i2c_close(self._i2c_handle)
-                    self.logger.debug("I2C handle closed")
-            except Exception as e:
-                self.logger.warning(f"Error closing I2C handle: {e}")
-        
-        self._i2c_handle = None
-        self._connected = False
-        
-        # Small delay to let H-bridge recover
-        import time
-        time.sleep(0.05)  # 50ms delay
-        
-        # Reinitialize
-        success = self._initialize_i2c()
-        
-        if success:
-            self.logger.info("I2C connection reset successful")
-            # Try to send stop command with new connection
-            try:
-                self._send_i2c_command(0, 0)
-            except Exception as e:
-                self.logger.warning(f"Failed to send stop after reset: {e}")
-        else:
-            self.logger.error("I2C connection reset failed")
-        
-        return success
-    
     def is_connected(self) -> bool:
         """Check if I2C connection is active.
         
@@ -261,15 +215,14 @@ class HBridgeDriver:
             self._error_count += 1
             self._consecutive_errors += 1
             
-            # On error threshold, reset I2C connection
+            # On error threshold, just log and reset counter
+            # Don't close I2C connection as it affects other devices on the bus
             if self.auto_stop_on_error and self._consecutive_errors >= self.error_threshold:
                 self.logger.warning(
-                    f"I2C error threshold reached ({self._consecutive_errors}). "
-                    "Resetting I2C connection (likely hit steering limit)."
+                    f"I2C errors detected ({self._consecutive_errors}). "
+                    "Motor likely hit steering limit. Will keep trying."
                 )
-                # Reset I2C connection to clear error state
-                self._reset_i2c()
-                # Reset consecutive errors
+                # Reset consecutive errors to allow new attempts
                 self._consecutive_errors = 0
                 # Store that we want motor stopped
                 self._last_direction = 0
@@ -307,7 +260,9 @@ class HBridgeDriver:
             return True
         
         if not self._connected:
-            self.logger.warning("I2C not connected, attempting to reconnect...")
+            # Don't log every time - too spammy
+            if self._error_count % 10 == 0:
+                self.logger.warning("I2C not connected, attempting to reconnect...")
             self._initialize_i2c()
             if not self._connected:
                 return False
