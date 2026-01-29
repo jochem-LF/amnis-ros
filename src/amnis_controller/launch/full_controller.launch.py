@@ -7,8 +7,9 @@ This launch file starts:
 3. steer_controller_node - Controls steering motor via I2C H-bridge
 4. brake_controller_node - Controls EHB brake system via CAN bus
 5. powertrain_controller_node - Controls throttle via PWM on GPIO
-6. topic_aggregator_node - Bridges ROS topics to a WebSocket frontend
-7. Firefox browser - Opens dashboard in fullscreen/kiosk mode
+6. sensor_reader_node - Reads gas pedal and steering wheel from ADC
+7. topic_aggregator_node - Bridges ROS topics to a WebSocket frontend
+8. Firefox browser - Opens dashboard in fullscreen/kiosk mode
 """
 import os
 from pathlib import Path
@@ -152,6 +153,39 @@ def generate_launch_description():
         }]
     )
     
+    # Sensor reader node - reads gas pedal and steering wheel from ADC
+    sensor_reader_node = Node(
+        package='amnis_controller',
+        executable='sensor_reader_node',
+        name='sensor_reader',
+        output='screen',
+        parameters=[{
+            'output_topic': 'sensor_data',
+            'diagnostic_topic': 'sensor_diagnostics',
+            # Hardware configuration
+            'i2c_bus': 1,                    # I2C bus on Raspberry Pi
+            'i2c_address': 0x48,             # ADS1015L I2C address (ADDR to GND)
+            # Pigpio connection configuration
+            'pigpio_host': '192.168.10.2',      # IP of Raspberry Pi running pigpiod
+            'pigpio_port': 8888,             # Default pigpiod port
+            'mock_mode': False,              # Set True for testing without hardware
+            # Calibration (set these after calibrating your potentiometers)
+            # Leave at defaults (0, 2047) for full range, or set specific values
+            'gas_pedal_min': 0,              # Raw ADC min value for gas pedal
+            'gas_pedal_max': 2047,           # Raw ADC max value for gas pedal
+            'steering_wheel_min': 0,         # Raw ADC min value for steering wheel
+            'steering_wheel_max': 2047,      # Raw ADC max value for steering wheel
+            'auto_calibrate': False,         # Set True to auto-calibrate at startup
+            'calibration_duration_sec': 10.0,# Auto-calibration duration
+            # Control
+            'update_rate_hz': 50.0,          # Sensor reading rate
+            # Diagnostics
+            'publish_diagnostics': True,
+            'log_throttle_sec': 1.0,
+            'verbose': True,                 # Set to True to enable debug logging
+        }]
+    )
+    
     # Topic aggregator node - exposes ROS topics over WebSockets
     aggregator_node = Node(
         package='amnis_controller',
@@ -187,6 +221,7 @@ def generate_launch_description():
         steer_controller_node,
         brake_controller_node,
         powertrain_controller_node,
+        sensor_reader_node,
         aggregator_node,
         firefox_process,
     ])
