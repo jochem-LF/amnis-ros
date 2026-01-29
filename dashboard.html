@@ -34,12 +34,12 @@
 
         .dashboard.main-view {
             grid-template-columns: 1fr 1fr;
-            grid-template-rows: auto auto;
+            grid-template-rows: auto auto auto;
         }
 
         .dashboard.details-view {
-            grid-template-columns: 1fr 1fr 1fr;
-            grid-template-rows: auto auto auto;
+            grid-template-columns: 1fr;
+            grid-template-rows: auto;
         }
 
         .header {
@@ -468,8 +468,51 @@
             grid-column: span 1;
         }
 
+        .vehicle-control-card {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 16px 24px;
+        }
+
+        .control-mode-display {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .control-mode-label {
+            font-size: 14px;
+            color: #a0a0b0;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .control-mode-value {
+            font-size: 24px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            text-shadow: 0 0 20px currentColor;
+            transition: all 0.3s ease;
+        }
+
+        .control-mode-value.state-EXTERNAL {
+            color: #10b981;
+        }
+
+        .control-mode-value.state-MANUAL {
+            color: #fbbf24;
+        }
+
+        .control-mode-value.state-EHB_ERROR,
+        .control-mode-value.state-IMMOBILIZED {
+            color: #ef4444;
+        }
+
         .mode-button {
-            padding: 12px 24px;
+            padding: 12px 32px;
             background: linear-gradient(135deg, #10b981, #059669);
             border: none;
             border-radius: 8px;
@@ -481,8 +524,7 @@
             text-transform: uppercase;
             letter-spacing: 1px;
             box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
-            margin-top: 8px;
-            width: 100%;
+            white-space: nowrap;
         }
 
         .mode-button:hover:not(:disabled) {
@@ -503,19 +545,6 @@
 
         .mode-button.hidden {
             display: none;
-        }
-
-        .state-value.state-EXTERNAL {
-            color: #10b981;
-        }
-
-        .state-value.state-MANUAL {
-            color: #fbbf24;
-        }
-
-        .state-value.state-EHB_ERROR,
-        .state-value.state-IMMOBILIZED {
-            color: #ef4444;
         }
 
         @media (max-width: 1920px) {
@@ -599,105 +628,22 @@
                 </svg>
             </div>
         </div>
-    </div>
 
-    <!-- Page 2: Details View -->
-    <div class="dashboard page details-view" id="detailsPage">
-
-        <!-- Vehicle State -->
-        <div class="card grid-2-cols">
-            <div class="card-title">Vehicle State</div>
-            <div class="vehicle-state">
-                <div class="state-item" id="gearD">
-                    <div class="state-label">Gear</div>
-                    <div class="state-value">D</div>
+        <!-- Vehicle Control Mode -->
+        <div class="card grid-full-width">
+            <div class="vehicle-control-card">
+                <div class="control-mode-display">
+                    <span class="control-mode-label">Control Mode:</span>
+                    <span class="control-mode-value" id="vehicleStateValue">UNKNOWN</span>
                 </div>
-                <div class="state-item" id="stateActive">
-                    <div class="state-label">Control Mode</div>
-                    <div class="state-value" id="vehicleStateValue">UNKNOWN</div>
-                </div>
-                <div class="state-item" id="safetyActive">
-                    <div class="state-label">Safety</div>
-                    <div class="state-value">OK</div>
-                </div>
-                <div class="state-item" id="batteryLevel">
-                    <div class="state-label">Battery</div>
-                    <div class="state-value" id="batteryValue">12V</div>
-                </div>
-            </div>
-            <button class="mode-button hidden" id="switchToExternalBtn" onclick="switchToExternal()">
-                ↻ Switch to External Control
-            </button>
-        </div>
-
-        <!-- Powertrain -->
-        <div class="card grid-1-col">
-            <div class="card-title">Powertrain</div>
-            <div class="motor-diagram">
-                <div class="motor-item" id="motorLeft">
-                    <div class="motor-label">Left</div>
-                    <div class="motor-value" id="motorLeftValue">0</div>
-                    <div class="motor-unit">%</div>
-                </div>
-                <div class="motor-item" id="motorRight">
-                    <div class="motor-label">Right</div>
-                    <div class="motor-value" id="motorRightValue">0</div>
-                    <div class="motor-unit">%</div>
-                </div>
-            </div>
-            <div class="bar-container">
-                <div class="bar-label">
-                    <span>Power Output</span>
-                    <span class="bar-label-value" id="powerOutput">0%</span>
-                </div>
-                <div class="bar">
-                    <div class="bar-fill" id="powerBar" style="width: 0%;"></div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Diagnostics -->
-        <div class="card grid-1-col">
-            <div class="card-title">Diagnostics</div>
-            <div class="sensor-grid">
-                <div class="sensor-card">
-                    <div class="sensor-name">Speed</div>
-                    <div class="sensor-value" id="speedValue">0</div>
-                    <div class="sensor-unit">km/h</div>
-                </div>
-                <div class="sensor-card">
-                    <div class="sensor-name">Temp</div>
-                    <div class="sensor-value" id="tempValue">35°</div>
-                    <div class="sensor-unit">Motor</div>
-                </div>
-            </div>
-        </div>
-
-        <!-- Joystick Input -->
-        <div class="card grid-1-col">
-            <div class="card-title">Inputs</div>
-            <div class="bar-container">
-                <div class="bar-label">
-                    <span>Throttle Input</span>
-                    <span class="bar-label-value" id="throttleInputValue">0%</span>
-                </div>
-                <div class="bar">
-                    <div class="bar-fill" id="throttleInputBar" style="width: 0%; background: linear-gradient(90deg, #4287f5, #8b5cf6);"></div>
-                </div>
-            </div>
-            <div class="bar-container">
-                <div class="bar-label">
-                    <span>Steering Input</span>
-                    <span class="bar-label-value" id="steerInputValue">0%</span>
-                </div>
-                <div class="bar">
-                    <div class="bar-fill" id="steerInputBar" style="width: 0%; background: linear-gradient(90deg, #4287f5, #8b5cf6);"></div>
-                </div>
+                <button class="mode-button hidden" id="switchToExternalBtn" onclick="switchToExternal()">
+                    ↻ Switch to External
+                </button>
             </div>
         </div>
     </div>
 
-    <!-- Page 3: Raw Data View -->
+    <!-- Page 2: Raw Data View -->
     <div class="dashboard page details-view" id="rawDataPage">
         <div class="card" style="grid-column: 1 / -1;">
             <div class="card-title">📡 Raw Topic Data</div>
@@ -985,7 +931,7 @@
                     this.canSwitchToExternal = data.can_switch_to_external;
                     const button = document.getElementById('switchToExternalBtn');
                     if (button) {
-                        if (this.canSwitchToExternal) {
+                        if (this.canSwitchToExternal && this.currentVehicleState === 'MANUAL') {
                             button.classList.remove('hidden');
                         } else {
                             button.classList.add('hidden');
