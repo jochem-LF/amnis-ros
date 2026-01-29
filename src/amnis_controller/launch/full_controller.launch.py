@@ -212,7 +212,7 @@ def generate_launch_description():
     
     # Firefox browser - opens dashboard in kiosk mode (fullscreen)
     # Construct absolute path to dashboard.html (one directory up from src)
-    workspace_dir = Path(os.getcwd()).parent
+    workspace_dir = Path(os.getcwd())
     dashboard_path = workspace_dir / 'dashboard.html'
     dashboard_url = f'file://{dashboard_path.absolute()}'
     
