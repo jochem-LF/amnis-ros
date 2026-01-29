@@ -35,6 +35,7 @@ setup(
             'powertrain_controller_node = amnis_controller.powertrain_controller_node:main',
             'topic_aggregator_node = amnis_controller.topic_aggregator_node:main',
             'sensor_reader_node = amnis_controller.sensor_reader_node:main',
+            'pid_steer_controller_node = amnis_controller.pid_steer_controller_node:main',
         ],
     },
 )
