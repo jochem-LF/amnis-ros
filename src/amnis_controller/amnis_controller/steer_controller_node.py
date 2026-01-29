@@ -106,7 +106,6 @@ class SteerControllerNode(Node):
         self._current_speed = 0
         self._is_timed_out = False
         self._last_error_count = 0
-        self._last_error_direction = 0  # Direction when error occurred
         
         # Create subscriber
         self.subscription = self.create_subscription(
@@ -185,68 +184,22 @@ class SteerControllerNode(Node):
             direction = 0  # Stop
             speed = 0
         
-        # Check if driver is auto-stopped due to errors (e.g., hit steering limit)
-        if self.driver.is_auto_stopped():
-            # Immediate recovery conditions:
-            # 1. Direction reversed (was going right, now left or vice versa)
-            # 2. Direction changed to stop (direction = 0)
-            should_recover = False
-            
-            if direction == 0:
-                # Stopped - immediate recovery
-                should_recover = True
-                recovery_reason = "steering stopped"
-            elif self._last_error_direction != 0 and direction != 0:
-                # Check if direction reversed (1->2 or 2->1)
-                if direction != self._last_error_direction:
-                    should_recover = True
-                    recovery_reason = "direction reversed"
-            
-            if should_recover:
-                self.get_logger().info(
-                    f"Attempting immediate auto-recovery ({recovery_reason})..."
-                )
-                if self.driver.clear_auto_stop():
-                    self.get_logger().info("Auto-recovery successful - resuming control")
-                    self._last_error_direction = 0
-                else:
-                    self.get_logger().warning("Auto-recovery failed, connection issue")
-                    return
-            else:
-                # Still commanding same direction that caused error - don't retry
-                if self.verbose:
-                    dir_name = {1: "LEFT", 2: "RIGHT"}.get(direction, "STOP")
-                    self.get_logger().info(
-                        f"Motor auto-stopped (hit limit). Still commanding {dir_name}. "
-                        "Reverse direction or stop to recover.",
-                        throttle_duration_sec=1.0
-                    )
-                return
-        
-        # Send to hardware
+        # Send to hardware - simple, no blocking
         success = self.driver.set_direction_speed(direction, speed)
         
         if success:
             self._current_direction = direction
             self._current_speed = speed
-        else:
-            # Track direction when error occurs
-            if self.driver.is_auto_stopped() and self._last_error_direction == 0:
-                self._last_error_direction = direction
-                dir_name = {0: "STOP", 1: "LEFT", 2: "RIGHT"}.get(direction, "?")
-                self.get_logger().warning(
-                    f"Motor auto-stopped while commanding {dir_name}. "
-                    "Reverse direction or stop to recover."
-                )
         
-        # Detect new errors
+        # Detect new errors (just for logging)
         current_errors = self.driver.get_error_count()
         if current_errors > self._last_error_count:
             new_errors = current_errors - self._last_error_count
             consecutive = self.driver.get_consecutive_errors()
-            self.get_logger().warning(
-                f"I2C errors detected: +{new_errors} (consecutive: {consecutive})"
-            )
+            if consecutive >= 3:
+                self.get_logger().warning(
+                    f"I2C errors: {consecutive} consecutive (likely hit steering limit)"
+                )
         self._last_error_count = current_errors
         
         # Periodic logging
@@ -307,7 +260,6 @@ class SteerControllerNode(Node):
             f"success={success}, "
             f"errors={self.driver.get_error_count()}, "
             f"consecutive_errors={self.driver.get_consecutive_errors()}, "
-            f"auto_stopped={self.driver.is_auto_stopped()}, "
             f"timed_out={self._is_timed_out}"
         )
         self.diagnostic_pub.publish(msg)

@@ -64,7 +64,6 @@ class HBridgeDriver:
         self._last_speed = 0
         self._error_count = 0
         self._consecutive_errors = 0
-        self._is_auto_stopped = False
         
         self.logger = logging.getLogger('HBridgeDriver')
         
@@ -98,6 +97,13 @@ class HBridgeDriver:
                 self._connected = False
                 return False
             
+            # Close existing handle if present
+            if self._i2c_handle is not None and self._i2c_handle >= 0:
+                try:
+                    self._pi.i2c_close(self._i2c_handle)
+                except Exception:
+                    pass  # Ignore errors on close
+            
             # Open I2C bus
             self._i2c_handle = self._pi.i2c_open(self.i2c_bus, self.i2c_address)
             
@@ -127,6 +133,52 @@ class HBridgeDriver:
             self._connected = False
             self._pigpio_conn.increment_error_count()
             return False
+    
+    def _reset_i2c(self) -> bool:
+        """Reset the I2C connection to recover from error state.
+        
+        This closes the current I2C handle and reopens it, which can
+        help recover from H-bridge error states.
+        
+        Returns:
+            True if reset successful, False otherwise
+        """
+        if self.mock_mode or self._pigpio_conn.is_mock_mode():
+            self.logger.info("MOCK: Resetting I2C connection")
+            return True
+        
+        self.logger.info("Resetting I2C connection...")
+        
+        # Close current handle
+        if self._i2c_handle is not None and self._i2c_handle >= 0:
+            try:
+                if self._pi is not None:
+                    self._pi.i2c_close(self._i2c_handle)
+                    self.logger.debug("I2C handle closed")
+            except Exception as e:
+                self.logger.warning(f"Error closing I2C handle: {e}")
+        
+        self._i2c_handle = None
+        self._connected = False
+        
+        # Small delay to let H-bridge recover
+        import time
+        time.sleep(0.05)  # 50ms delay
+        
+        # Reinitialize
+        success = self._initialize_i2c()
+        
+        if success:
+            self.logger.info("I2C connection reset successful")
+            # Try to send stop command with new connection
+            try:
+                self._send_i2c_command(0, 0)
+            except Exception as e:
+                self.logger.warning(f"Failed to send stop after reset: {e}")
+        else:
+            self.logger.error("I2C connection reset failed")
+        
+        return success
     
     def is_connected(self) -> bool:
         """Check if I2C connection is active.
@@ -191,21 +243,9 @@ class HBridgeDriver:
             self.logger.error(f"Invalid direction {direction}, must be 0, 1, or 2")
             return False
         
-        # Check if auto-stopped due to errors
-        if self._is_auto_stopped and direction != 0:
-            self.logger.warning(
-                "Motor is auto-stopped due to I2C errors. "
-                "Call clear_auto_stop() or send stop command first."
-            )
-            return False
-        
-        # If direction is 0 (stop), always set speed to 0 and clear auto-stop
+        # If direction is 0 (stop), always set speed to 0
         if direction == 0:
             speed = 0
-            if self._is_auto_stopped:
-                self.logger.info("Clearing auto-stop state")
-                self._is_auto_stopped = False
-                self._consecutive_errors = 0
         else:
             # Clamp speed to valid range
             speed = max(0, min(self.max_power, speed))
@@ -221,15 +261,19 @@ class HBridgeDriver:
             self._error_count += 1
             self._consecutive_errors += 1
             
-            # Check if we should auto-stop
-            if (self.auto_stop_on_error and 
-                self._consecutive_errors >= self.error_threshold and
-                not self._is_auto_stopped):
-                self.logger.error(
-                    f"I2C error threshold reached ({self._consecutive_errors} consecutive errors). "
-                    "Auto-stopping motor (likely hit steering limit)."
+            # On error threshold, reset I2C connection
+            if self.auto_stop_on_error and self._consecutive_errors >= self.error_threshold:
+                self.logger.warning(
+                    f"I2C error threshold reached ({self._consecutive_errors}). "
+                    "Resetting I2C connection (likely hit steering limit)."
                 )
-                self._trigger_auto_stop()
+                # Reset I2C connection to clear error state
+                self._reset_i2c()
+                # Reset consecutive errors
+                self._consecutive_errors = 0
+                # Store that we want motor stopped
+                self._last_direction = 0
+                self._last_speed = 0
         
         return success
     
@@ -301,58 +345,6 @@ class HBridgeDriver:
             self._connected = False
             self._pigpio_conn.increment_error_count()
             return False
-    
-    def _trigger_auto_stop(self) -> None:
-        """Trigger automatic motor stop due to errors.
-        
-        This is called when consecutive I2C errors exceed the threshold,
-        typically indicating the motor has hit a physical limit.
-        """
-        self._is_auto_stopped = True
-        
-        # Try to send stop command (might fail if I2C is broken)
-        try:
-            # Bypass the auto-stop check for this emergency stop
-            saved_state = self._is_auto_stopped
-            self._is_auto_stopped = False
-            self._send_i2c_command(0, 0)
-            self._is_auto_stopped = saved_state
-            
-            self._last_direction = 0
-            self._last_speed = 0
-            self.logger.warning("Motor auto-stopped successfully")
-        except Exception as e:
-            self.logger.error(f"Failed to send auto-stop command: {e}")
-    
-    def is_auto_stopped(self) -> bool:
-        """Check if motor is in auto-stopped state due to errors.
-        
-        Returns:
-            True if auto-stopped, False otherwise
-        """
-        return self._is_auto_stopped
-    
-    def clear_auto_stop(self) -> bool:
-        """Clear the auto-stop state and allow motor control again.
-        
-        This should be called after resolving the condition that caused
-        the auto-stop (e.g., moving steering away from limit).
-        
-        Returns:
-            True if cleared successfully, False if still experiencing errors
-        """
-        if not self._is_auto_stopped:
-            return True
-        
-        self.logger.info("Clearing auto-stop state...")
-        self._is_auto_stopped = False
-        self._consecutive_errors = 0
-        
-        # Try to reconnect if needed
-        if not self._connected:
-            self._initialize_i2c()
-        
-        return self._connected
     
     def get_consecutive_errors(self) -> int:
         """Get the number of consecutive I2C errors.
