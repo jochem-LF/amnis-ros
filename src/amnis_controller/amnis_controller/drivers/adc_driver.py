@@ -104,6 +104,8 @@ class ADCDriver:
         self._connected = False
         self._error_count = 0
         self._i2c_lock = threading.Lock()  # Mutex for I2C operations
+        self._last_reconnect_attempt = 0  # Timestamp of last reconnect attempt
+        self._reconnect_backoff = 1.0  # Start with 1 second backoff
         
         # Calibration data - use provided values or defaults
         self._gas_min = gas_min if gas_min is not None else 0
@@ -142,6 +144,16 @@ class ADCDriver:
             self._connected = True
             return True
         
+        # Close existing handle first if it exists
+        if self._i2c_handle is not None and self._i2c_handle >= 0:
+            try:
+                if self._pi is not None:
+                    self._pi.i2c_close(self._i2c_handle)
+                    self.logger.debug("Closed existing I2C handle before reinitializing")
+            except Exception as e:
+                self.logger.debug(f"Error closing existing handle: {e}")
+            self._i2c_handle = None
+        
         try:
             # Get pigpio connection
             self._pi = self._pigpio_conn.get_pi()
@@ -154,24 +166,39 @@ class ADCDriver:
             self._i2c_handle = self._pi.i2c_open(self.i2c_bus, self.i2c_address)
             
             if self._i2c_handle < 0:
-                self.logger.error(
-                    f"Failed to open I2C device at bus {self.i2c_bus}, "
-                    f"address 0x{self.i2c_address:02X}"
-                )
+                error_msg = {
+                    -1: "GPIO already in use",
+                    -2: "no handle available",
+                    -3: "I2C open failed",
+                }
+                error_detail = error_msg.get(self._i2c_handle, f"error code {self._i2c_handle}")
+                
+                # Only log every 10 attempts to reduce spam
+                if self._error_count % 10 == 0:
+                    self.logger.error(
+                        f"Failed to open I2C device: {error_detail} "
+                        f"(bus={self.i2c_bus}, addr=0x{self.i2c_address:02X})"
+                    )
                 self._connected = False
+                self._i2c_handle = None
                 return False
             
             self._connected = True
+            self._reconnect_backoff = 1.0  # Reset backoff on success
             self.logger.info(
                 f"I2C ADC initialized: bus={self.i2c_bus}, "
                 f"address=0x{self.i2c_address:02X}, "
+                f"handle={self._i2c_handle}, "
                 f"host={self._pigpio_conn.get_host()}"
             )
             return True
             
         except Exception as e:
-            self.logger.error(f"Failed to initialize I2C: {e}")
+            # Only log every 10 attempts to reduce spam
+            if self._error_count % 10 == 0:
+                self.logger.error(f"Failed to initialize I2C: {e}")
             self._connected = False
+            self._i2c_handle = None
             self._pigpio_conn.increment_error_count()
             return False
     
@@ -200,9 +227,15 @@ class ADCDriver:
             return True
         
         if not self._connected:
-            # Try to reconnect automatically
-            self._initialize_i2c()
-            if not self._connected:
+            # Try to reconnect with backoff
+            current_time = time.time()
+            if current_time - self._last_reconnect_attempt >= self._reconnect_backoff:
+                self._last_reconnect_attempt = current_time
+                if not self._initialize_i2c():
+                    # Exponential backoff up to 30 seconds
+                    self._reconnect_backoff = min(self._reconnect_backoff * 1.5, 30.0)
+                    return False
+            else:
                 return False
         
         with self._i2c_lock:  # Lock I2C bus access
@@ -244,9 +277,15 @@ class ADCDriver:
             return random.randint(500, 1500)
         
         if not self._connected:
-            # Try to reconnect automatically
-            self._initialize_i2c()
-            if not self._connected:
+            # Try to reconnect with backoff
+            current_time = time.time()
+            if current_time - self._last_reconnect_attempt >= self._reconnect_backoff:
+                self._last_reconnect_attempt = current_time
+                if not self._initialize_i2c():
+                    # Exponential backoff up to 30 seconds
+                    self._reconnect_backoff = min(self._reconnect_backoff * 1.5, 30.0)
+                    return None
+            else:
                 return None
         
         with self._i2c_lock:  # Lock I2C bus access
@@ -550,12 +589,12 @@ class ADCDriver:
             self.logger.info("Closing ADC driver...")
             
             if not self.mock_mode and not self._pigpio_conn.is_mock_mode():
-                if self._pi is not None and self._i2c_handle is not None:
+                if self._pi is not None and self._i2c_handle is not None and self._i2c_handle >= 0:
                     try:
                         self._pi.i2c_close(self._i2c_handle)
-                        self.logger.info("I2C device closed")
+                        self.logger.info(f"I2C handle {self._i2c_handle} closed")
                     except Exception as e:
-                        self.logger.error(f"Error closing I2C device: {e}")
+                        self.logger.error(f"Error closing I2C handle: {e}")
                     
         except Exception as e:
             self.logger.error(f"Error during cleanup: {e}")
