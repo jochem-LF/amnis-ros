@@ -72,7 +72,7 @@ def generate_launch_description():
             'mock_mode': False,             # Set True for testing without hardware
             # Gas pedal override configuration
             'enable_gas_override': True,    # Enable automatic EXTERNAL→MANUAL on gas pedal press
-            'gas_override_threshold': 0.30, # 15% change triggers override
+            'gas_override_threshold': 0.15, # 15% change triggers override
             'verbose_override': True,       # Log override events
             'log_throttle_sec': 0.5,
             'verbose': False,  # Logging disabled
@@ -176,8 +176,8 @@ def generate_launch_description():
             'mock_mode': False,              # Set True for testing without hardware
             # Calibration (set these after calibrating your potentiometers)
             # Gas pedal is inverted: 4093 when not pressed, 0 when pressed
-            'gas_pedal_min': 0,              # Raw ADC min value (fully pressed)
-            'gas_pedal_max': 4093,           # Raw ADC max value (not pressed)
+            'gas_pedal_min': 4093,              # Raw ADC min value (fully pressed)
+            'gas_pedal_max': 0,           # Raw ADC max value (not pressed)
             'steering_wheel_min': 0,         # Raw ADC min value for steering wheel
             'steering_wheel_max': 2047,      # Raw ADC max value for steering wheel
             'auto_calibrate': False,         # Set True to auto-calibrate at startup
