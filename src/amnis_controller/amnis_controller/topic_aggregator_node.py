@@ -37,6 +37,8 @@ from rclpy.subscription import Subscription
 from rosidl_runtime_py.convert import message_to_ordereddict
 from rosidl_runtime_py.utilities import get_message
 
+from amnis_controller.msg import ModeCommand
+
 try:
     import websockets
     from websockets.server import WebSocketServerProtocol, WebSocketServer
@@ -116,6 +118,13 @@ class TopicAggregatorNode(Node):
             self.get_logger().error(
                 f'WebSocket server failed to start: {self._ws_startup_error}'
             )
+
+        # Create publisher for mode commands from dashboard
+        self._mode_command_publisher = self.create_publisher(
+            ModeCommand,
+            'mode_command',
+            10
+        )
 
         # Start topic discovery timer and do an initial discovery pass.
         self._topic_poll_timer = self.create_timer(  # type: ignore[assignment]
@@ -228,12 +237,55 @@ class TopicAggregatorNode(Node):
         assert self._ws_clients is not None
         self._ws_clients.add(websocket)
         try:
+            # Send initial snapshot to client
             snapshot_payload = self._build_snapshot_payload()
             await websocket.send(snapshot_payload)
-            # Keep the connection open until the client disconnects.
-            await websocket.wait_closed()
+            
+            # Listen for incoming messages from the client
+            async for message in websocket:
+                try:
+                    self._handle_incoming_message(message)
+                except Exception as exc:
+                    self.get_logger().warning(f'Error handling WebSocket message: {exc}')
+        except websockets.ConnectionClosed:
+            pass  # Client disconnected normally
+        except Exception as exc:
+            self.get_logger().warning(f'WebSocket client error: {exc}')
         finally:
             self._ws_clients.discard(websocket)
+    
+    def _handle_incoming_message(self, message: str) -> None:
+        """Handle incoming WebSocket message from dashboard.
+        
+        Expected message format:
+        {
+            "event": "mode_command",
+            "payload": {
+                "target_state": "EXTERNAL" or "MANUAL"
+            }
+        }
+        """
+        try:
+            data = json.loads(message)
+            event = data.get('event')
+            payload = data.get('payload', {})
+            
+            if event == 'mode_command':
+                target_state = payload.get('target_state')
+                if target_state:
+                    # Publish the mode command to ROS2
+                    msg = ModeCommand()
+                    msg.target_state = target_state
+                    self._mode_command_publisher.publish(msg)
+                    self.get_logger().info(f'Mode command received from dashboard: {target_state}')
+                else:
+                    self.get_logger().warning('Mode command missing target_state')
+            else:
+                self.get_logger().warning(f'Unknown WebSocket event: {event}')
+        except json.JSONDecodeError as exc:
+            self.get_logger().warning(f'Invalid JSON from WebSocket client: {exc}')
+        except Exception as exc:
+            self.get_logger().warning(f'Error processing WebSocket message: {exc}')
 
     def _enqueue_payload(self, payload: str) -> None:
         if not self._ws_ready.is_set() or not self._broadcast_queue:

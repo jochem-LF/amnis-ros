@@ -1,0 +1,2 @@
+string state
+bool can_switch_to_external

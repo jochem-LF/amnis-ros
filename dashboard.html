@@ -468,6 +468,56 @@
             grid-column: span 1;
         }
 
+        .mode-button {
+            padding: 12px 24px;
+            background: linear-gradient(135deg, #10b981, #059669);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+            margin-top: 8px;
+            width: 100%;
+        }
+
+        .mode-button:hover:not(:disabled) {
+            background: linear-gradient(135deg, #059669, #047857);
+            box-shadow: 0 6px 16px rgba(16, 185, 129, 0.5);
+            transform: translateY(-2px);
+        }
+
+        .mode-button:active:not(:disabled) {
+            transform: translateY(0);
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+        }
+
+        .mode-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .mode-button.hidden {
+            display: none;
+        }
+
+        .state-value.state-EXTERNAL {
+            color: #10b981;
+        }
+
+        .state-value.state-MANUAL {
+            color: #fbbf24;
+        }
+
+        .state-value.state-EHB_ERROR,
+        .state-value.state-IMMOBILIZED {
+            color: #ef4444;
+        }
+
         @media (max-width: 1920px) {
             .dashboard {
                 grid-template-columns: 1fr 1fr;
@@ -563,8 +613,8 @@
                     <div class="state-value">D</div>
                 </div>
                 <div class="state-item" id="stateActive">
-                    <div class="state-label">Mode</div>
-                    <div class="state-value" id="modeValue">IDLE</div>
+                    <div class="state-label">Control Mode</div>
+                    <div class="state-value" id="vehicleStateValue">UNKNOWN</div>
                 </div>
                 <div class="state-item" id="safetyActive">
                     <div class="state-label">Safety</div>
@@ -575,6 +625,9 @@
                     <div class="state-value" id="batteryValue">12V</div>
                 </div>
             </div>
+            <button class="mode-button hidden" id="switchToExternalBtn" onclick="switchToExternal()">
+                ↻ Switch to External Control
+            </button>
         </div>
 
         <!-- Powertrain -->
@@ -666,6 +719,9 @@
             ws_url: null, // null = auto-detect, or set to 'ws://your-robot-ip:8765'
         };
 
+        // Global reference to dashboard instance
+        let dashboardInstance = null;
+
         // Page navigation
         let currentPage = 'main';
         function togglePage() {
@@ -690,6 +746,8 @@
             constructor() {
                 this.ws = null;
                 this.topicData = {};
+                this.currentVehicleState = null;
+                this.canSwitchToExternal = false;
                 this.connect();
                 this.initEventListeners();
             }
@@ -793,6 +851,8 @@
                     this.updateSteerCommand(data);
                 } else if (type.includes('BrakeCommand')) {
                     this.updateBrakeCommand(data);
+                } else if (type.includes('VehicleState')) {
+                    this.updateVehicleState(data);
                 }
             }
 
@@ -902,6 +962,64 @@
                 }
             }
 
+            updateVehicleState(data) {
+                // Update current state tracking
+                if ('state' in data) {
+                    this.currentVehicleState = data.state;
+                    
+                    // Update the UI
+                    const stateElement = document.getElementById('vehicleStateValue');
+                    if (stateElement) {
+                        stateElement.textContent = data.state;
+                        
+                        // Remove all state classes
+                        stateElement.classList.remove('state-EXTERNAL', 'state-MANUAL', 'state-EHB_ERROR', 'state-IMMOBILIZED');
+                        
+                        // Add current state class for color coding
+                        stateElement.classList.add(`state-${data.state}`);
+                    }
+                }
+                
+                // Update button visibility
+                if ('can_switch_to_external' in data) {
+                    this.canSwitchToExternal = data.can_switch_to_external;
+                    const button = document.getElementById('switchToExternalBtn');
+                    if (button) {
+                        if (this.canSwitchToExternal) {
+                            button.classList.remove('hidden');
+                        } else {
+                            button.classList.add('hidden');
+                        }
+                    }
+                }
+            }
+
+            sendModeCommand(targetState) {
+                if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+                    console.error('WebSocket not connected, cannot send mode command');
+                    return;
+                }
+                
+                const command = {
+                    event: 'mode_command',
+                    payload: {
+                        target_state: targetState
+                    }
+                };
+                
+                console.log('Sending mode command:', command);
+                this.ws.send(JSON.stringify(command));
+                
+                // Disable button temporarily to prevent spamming
+                const button = document.getElementById('switchToExternalBtn');
+                if (button) {
+                    button.disabled = true;
+                    setTimeout(() => {
+                        button.disabled = false;
+                    }, 2000);
+                }
+            }
+
             updateGauge(arcId, valueId, percentage) {
                 const circumference = 2 * Math.PI * 80; // 502.65
                 const offset = circumference * (1 - percentage / 100);
@@ -943,9 +1061,16 @@
             }
         }
 
+        // Function to switch to external mode (called by button)
+        function switchToExternal() {
+            if (dashboardInstance) {
+                dashboardInstance.sendModeCommand('EXTERNAL');
+            }
+        }
+
         // Initialize dashboard when page loads
         window.addEventListener('load', () => {
-            new VehicleDashboard();
+            dashboardInstance = new VehicleDashboard();
         });
     </script>
 </body>

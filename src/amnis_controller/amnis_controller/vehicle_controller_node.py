@@ -18,7 +18,15 @@ from typing import Optional
 import rclpy
 from rclpy.node import Node
 
-from amnis_controller.msg import JoystickCommand, PowertrainCommand, SteerCommand, BrakeCommand, SensorData
+from amnis_controller.msg import (
+    JoystickCommand, 
+    PowertrainCommand, 
+    SteerCommand, 
+    BrakeCommand, 
+    SensorData,
+    VehicleState as VehicleStateMsg,
+    ModeCommand
+)
 from amnis_controller.drivers import TransmissionDriver
 
 
@@ -50,6 +58,8 @@ class VehicleControllerNode(Node):
         self.declare_parameter('powertrain_topic', 'powertrain_command')
         self.declare_parameter('steer_topic', 'steer_command')
         self.declare_parameter('brake_topic', 'brake_command')
+        self.declare_parameter('vehicle_state_topic', 'vehicle_state')
+        self.declare_parameter('mode_command_topic', 'mode_command')
         self.declare_parameter('queue_size', 10)
         
         # Initial vehicle state
@@ -78,6 +88,8 @@ class VehicleControllerNode(Node):
         self._powertrain_topic = self.get_parameter('powertrain_topic').value
         self._steer_topic = self.get_parameter('steer_topic').value
         self._brake_topic = self.get_parameter('brake_topic').value
+        self._vehicle_state_topic = self.get_parameter('vehicle_state_topic').value
+        self._mode_command_topic = self.get_parameter('mode_command_topic').value
         queue_size = int(self.get_parameter('queue_size').value)
         self._enable_gas_override = self.get_parameter('enable_gas_override').value
         self._gas_override_raw_min = self.get_parameter('gas_override_raw_min').value
@@ -154,6 +166,13 @@ class VehicleControllerNode(Node):
             self._brake_topic,
             queue_size
         )
+        
+        # Create publisher for vehicle state
+        self._vehicle_state_publisher = self.create_publisher(
+            VehicleStateMsg,
+            self._vehicle_state_topic,
+            queue_size
+        )
 
         # Create subscription to joystick commands
         self._subscription = self.create_subscription(
@@ -170,6 +189,14 @@ class VehicleControllerNode(Node):
             self._sensor_callback,
             queue_size
         )
+        
+        # Create subscription to mode commands
+        self._mode_command_subscription = self.create_subscription(
+            ModeCommand,
+            self._mode_command_topic,
+            self._mode_command_callback,
+            queue_size
+        )
 
         # Log startup message
         if self.verbose:
@@ -183,6 +210,9 @@ class VehicleControllerNode(Node):
                 f"outputs=[powertrain={self._powertrain_topic}, "
                 f"steer={self._steer_topic}, brake={self._brake_topic}]{override_status})"
             )
+        
+        # Publish initial state
+        self._publish_vehicle_state()
 
     def _update_state_machine(self) -> None:
         """Update the state machine based on current inputs.
@@ -285,10 +315,75 @@ class VehicleControllerNode(Node):
                     self.transmission_driver.set_external_mode(False)
                     if self._verbose_override:
                         self.get_logger().info("External mode relay disabled")
+                
+                # Publish the state change
+                self._publish_vehicle_state()
         
         # Reset override flag if not in EXTERNAL mode
         if self._current_state != VehicleState.EXTERNAL:
             self._override_active = False
+    
+    def _mode_command_callback(self, msg: ModeCommand) -> None:
+        """Handle incoming mode command messages from the dashboard.
+        
+        For safety, only MANUAL ↔ EXTERNAL transitions are allowed.
+        
+        Args:
+            msg: ModeCommand message containing target_state
+        """
+        target_state_str = msg.target_state.upper()
+        
+        # Validate target state
+        try:
+            target_state = VehicleState[target_state_str]
+        except KeyError:
+            self.get_logger().warning(
+                f"Invalid mode command: '{msg.target_state}' (valid: MANUAL, EXTERNAL)"
+            )
+            return
+        
+        # Safety check: Only allow MANUAL ↔ EXTERNAL transitions
+        if target_state not in (VehicleState.MANUAL, VehicleState.EXTERNAL):
+            self.get_logger().warning(
+                f"Cannot manually switch to {target_state.name} (only MANUAL/EXTERNAL allowed)"
+            )
+            return
+        
+        # Check if already in target state
+        if self._current_state == target_state:
+            if self.verbose:
+                self.get_logger().info(f"Already in {target_state.name} mode, ignoring command")
+            return
+        
+        # Perform the state transition
+        old_state = self._current_state
+        self._current_state = target_state
+        
+        # Update external mode relay
+        if self.enable_external_mode_control and self.transmission_driver is not None:
+            external_mode = (target_state == VehicleState.EXTERNAL)
+            self.transmission_driver.set_external_mode(external_mode)
+        
+        # Reset override flag when switching modes
+        self._override_active = False
+        
+        # Log the transition
+        self.get_logger().info(
+            f"Mode switched: {old_state.name} → {target_state.name}"
+        )
+        
+        # Publish the new state
+        self._publish_vehicle_state()
+    
+    def _publish_vehicle_state(self) -> None:
+        """Publish the current vehicle state to the vehicle_state topic."""
+        state_msg = VehicleStateMsg()
+        state_msg.state = self._current_state.name
+        
+        # Determine if we can switch to EXTERNAL (only from MANUAL)
+        state_msg.can_switch_to_external = (self._current_state == VehicleState.MANUAL)
+        
+        self._vehicle_state_publisher.publish(state_msg)
     
     def _joystick_callback(self, msg: JoystickCommand) -> None:
         """Handle incoming joystick command messages.
@@ -342,6 +437,10 @@ class VehicleControllerNode(Node):
             self.destroy_subscription(self._sensor_subscription)
             self._sensor_subscription = None
         
+        if getattr(self, '_mode_command_subscription', None) is not None:
+            self.destroy_subscription(self._mode_command_subscription)
+            self._mode_command_subscription = None
+        
         if getattr(self, '_powertrain_publisher', None) is not None:
             self.destroy_publisher(self._powertrain_publisher)
             self._powertrain_publisher = None
@@ -353,6 +452,10 @@ class VehicleControllerNode(Node):
         if getattr(self, '_brake_publisher', None) is not None:
             self.destroy_publisher(self._brake_publisher)
             self._brake_publisher = None
+        
+        if getattr(self, '_vehicle_state_publisher', None) is not None:
+            self.destroy_publisher(self._vehicle_state_publisher)
+            self._vehicle_state_publisher = None
         
         return super().destroy_node()
 

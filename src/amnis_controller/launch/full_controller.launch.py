@@ -62,6 +62,8 @@ def generate_launch_description():
             'powertrain_topic': 'powertrain_command',
             'steer_topic': 'steer_command',
             'brake_topic': 'brake_command',
+            'vehicle_state_topic': 'vehicle_state',
+            'mode_command_topic': 'mode_command',
             'safety_button': False,  # Simulated - will be hardware later
             'mode_button': True,    # Simulated - will be hardware later
             # External mode relay configuration (remote GPIO via pigpio)

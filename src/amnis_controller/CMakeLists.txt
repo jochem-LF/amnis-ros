@@ -22,6 +22,8 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/SteerCommand.msg"
   "msg/BrakeCommand.msg"
   "msg/SensorData.msg"
+  "msg/VehicleState.msg"
+  "msg/ModeCommand.msg"
   DEPENDENCIES sensor_msgs
 )
 
