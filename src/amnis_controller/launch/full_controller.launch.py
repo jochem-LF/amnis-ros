@@ -46,7 +46,7 @@ def generate_launch_description():
             'trigger_axes': [2],
             'deadzone': 0.05,
             'log_throttle_sec': 0.5,
-            'verbose': True,  # Set to True to enable debug logging for this node
+            'verbose': False,  # Logging disabled
         }]
     )
     
