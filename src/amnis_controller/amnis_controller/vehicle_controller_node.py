@@ -211,6 +211,12 @@ class VehicleControllerNode(Node):
                 f"steer={self._steer_topic}, brake={self._brake_topic}]{override_status})"
             )
         
+        # Create timer to periodically publish vehicle state (2 Hz)
+        self._state_publish_timer = self.create_timer(
+            0.5,  # 2 Hz - publish state every 0.5 seconds
+            self._publish_vehicle_state
+        )
+        
         # Publish initial state
         self._publish_vehicle_state()
 
@@ -428,6 +434,11 @@ class VehicleControllerNode(Node):
             self.get_logger().info("Disabling external mode relay...")
             self.transmission_driver.set_external_mode(False)
             self.transmission_driver.close()
+        
+        # Destroy timer
+        if getattr(self, '_state_publish_timer', None) is not None:
+            self.destroy_timer(self._state_publish_timer)
+            self._state_publish_timer = None
         
         if getattr(self, '_subscription', None) is not None:
             self.destroy_subscription(self._subscription)
