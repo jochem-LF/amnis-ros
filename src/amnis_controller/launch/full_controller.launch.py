@@ -74,37 +74,7 @@ def generate_launch_description():
         }]
     )
     
-    # PID Steering controller node - closed-loop position control
-    pid_steer_controller_node = Node(
-        package='amnis_controller',
-        executable='pid_steer_controller_node',
-        name='pid_steer_controller',
-        output='screen',
-        parameters=[{
-            'joystick_topic': 'vehicle_controller_command',
-            'sensor_topic': 'sensor_data',
-            'output_topic': 'steer_command',
-            'diagnostic_topic': 'pid_steer_diagnostics',
-            # PID gains (tune these based on system response)
-            'kp': 100.0,                     # Proportional gain (start conservative)
-            'ki': 5.0,                       # Integral gain
-            'kd': 2.0,                       # Derivative gain
-            'output_limit': 100.0,           # Max motor power %
-            'integral_limit': 20.0,          # Anti-windup limit
-            'deadband': 0.02,                # 2% error deadband
-            # Control parameters
-            'update_rate_hz': 20.0,          # Match sensor rate
-            'sensor_timeout_sec': 0.5,       # Sensor timeout
-            'max_error': 0.5,                # Max acceptable error (50%)
-            # Diagnostics
-            'publish_diagnostics': True,
-            'log_throttle_sec': 1.0,
-            'verbose': True,                 # Enable PID logging
-        }]
-    )
-    
     # Steer controller node - controls H-bridge via remote I2C (pigpio)
-    # This now receives commands from the PID controller
     steer_controller_node = Node(
         package='amnis_controller',
         executable='steer_controller_node',
@@ -203,8 +173,8 @@ def generate_launch_description():
             # Leave at defaults (0, 2047) for full range, or set specific values
             'gas_pedal_min': 0,              # Raw ADC min value for gas pedal
             'gas_pedal_max': 2047,           # Raw ADC max value for gas pedal
-            'steering_wheel_min': 38,        # Raw ADC min value for steering wheel (measured)
-            'steering_wheel_max': 461,       # Raw ADC max value for steering wheel (measured)
+            'steering_wheel_min': 0,         # Raw ADC min value for steering wheel
+            'steering_wheel_max': 2047,      # Raw ADC max value for steering wheel
             'auto_calibrate': False,         # Set True to auto-calibrate at startup
             'calibration_duration_sec': 10.0,# Auto-calibration duration
             # Control
@@ -248,11 +218,10 @@ def generate_launch_description():
         game_controller_node,
         joystick_node,
         controller_node,
-        sensor_reader_node,        # Reads ADC sensors (must start before PID)
-        pid_steer_controller_node, # PID controller (uses sensor data)
-        steer_controller_node,     # H-bridge driver (receives PID output)
+        steer_controller_node,
         brake_controller_node,
         powertrain_controller_node,
+        sensor_reader_node,
         aggregator_node,
         firefox_process,
     ])
