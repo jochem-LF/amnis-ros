@@ -1,0 +1,89 @@
+site_name: Amnis Documentation
+site_description: Documentation for the Amnis ROS 2 Workspace
+site_author: Amnis Team
+
+theme:
+  name: material
+  font:
+    text: Roboto
+    code: Roboto Mono
+  icon:
+    logo: material/book-open-page-variant
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.tabs
+    - navigation.tabs.sticky
+    - navigation.sections
+    - navigation.expand
+    - navigation.indexes
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - content.code.copy
+  palette:
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to light mode
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+
+nav:
+  - Home: index.md
+  - Nodes:
+    - Overview: nodes/overview.md
+    - Game Controller: nodes/game_controller.md
+    - Joystick normalizer: nodes/joystick_normalizer.md
+    - Vehicle Controller: nodes/vehicle_controller.md
+    - Steer Controller: nodes/steer_controller.md
+    - Brake Controller: nodes/brake_controller.md
+    - Powertrain Controller: nodes/powertrain_controller.md
+    - Topic Aggregator: nodes/topic_aggregator.md
+    
+    
+  
+  - Topics:
+    - Overview: topics/overview.md
+    - Joystick Command: topics/joystick_command.md
+    - Powertrain Command: topics/powertrain_command.md
+    - Steer Command: topics/steer_command.md
+    - Brake Command: topics/brake_command.md
+  - Development:
+    - Setup: development/setup.md
+    - Launch Configuration: development/launch_file.md
+    - Dashboard: development/dashboard.md
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          paths: [src]
+
+markdown_extensions:
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format ## if this gives unresolved tag error, it can be ignored
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+
+extra: ## disables the footer display "Made with Material for MkDocs"
+  generator: false
+
+extra_javascript:
+  - https://unpkg.com/mermaid@10.4.0/dist/mermaid.min.js
