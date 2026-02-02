@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AMNIS Vehicle Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0f0f1e 0%, #1a1a2e 100%);
+            color: #e0e0e0;
+            min-height: 100vh;
+            overflow-x: hidden;
+            overflow-y: auto;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: auto auto;
+            gap: 12px;
+            padding: 12px;
+            max-height: 100vh;
+            overflow-y: auto;
+            background: radial-gradient(circle at 20% 50%, rgba(66, 135, 245, 0.1) 0%, transparent 50%),
+                        radial-gradient(circle at 80% 80%, rgba(139, 92, 246, 0.1) 0%, transparent 50%);
+        }
+
+        .dashboard.main-view {
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: auto auto auto;
+        }
+
+        .dashboard.details-view {
+            grid-template-columns: 1fr;
+            grid-template-rows: auto;
+        }
+
+        .header {
+            grid-column: 1 / -1;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 16px 24px;
+            background: rgba(20, 20, 35, 0.8);
+            border-radius: 12px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(100, 150, 255, 0.2);
+        }
+
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            background: linear-gradient(135deg, #4287f5, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+        }
+
+        .status-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: #10b981;
+            box-shadow: 0 0 10px rgba(16, 185, 129, 0.5);
+            animation: pulse 2s infinite;
+        }
+
+        .status-dot.disconnected {
+            background: #ef4444;
+            box-shadow: 0 0 10px rgba(239, 68, 68, 0.5);
+            animation: pulse-danger 0.8s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        @keyframes pulse-danger {
+            0%, 100% { opacity: 1; box-shadow: 0 0 10px rgba(239, 68, 68, 0.5); }
+            50% { opacity: 0.3; box-shadow: 0 0 20px rgba(239, 68, 68, 0.8); }
+        }
+
+        .card {
+            background: rgba(30, 30, 50, 0.6);
+            border: 1px solid rgba(100, 150, 255, 0.2);
+            border-radius: 12px;
+            padding: 12px;
+            backdrop-filter: blur(10px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+            transition: all 0.3s ease;
+        }
+
+        .card:hover {
+            border-color: rgba(100, 150, 255, 0.4);
+            box-shadow: 0 8px 32px rgba(66, 135, 245, 0.2);
+            background: rgba(30, 30, 50, 0.8);
+        }
+
+        .card-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #4287f5;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .gauge-container {
+            position: relative;
+            width: 100%;
+            max-width: 280px;
+            min-width: 280px;
+            margin: 0 auto;
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .gauge {
+            width: 100%;
+            height: 100%;
+            min-width: 280px;
+            min-height: 280px;
+        }
+
+        .gauge-arc {
+            fill: none;
+            stroke: rgba(100, 150, 255, 0.3);
+            stroke-width: 8;
+            stroke-linecap: round;
+            transform-origin: center;
+            transform: rotate(-90deg);
+        }
+
+        .gauge-value {
+            fill: none;
+            stroke: url(#gaugeGradient);
+            stroke-width: 8;
+            stroke-linecap: round;
+            transition: stroke-dashoffset 0.3s ease;
+            transform-origin: center;
+            transform: rotate(-90deg);
+            stroke-dasharray: 502.65; /* 2 * PI * 80 */
+            stroke-dashoffset: 502.65;
+        }
+
+        .gauge-value.brake {
+            stroke: url(#brakeGradient);
+        }
+
+        .gauge-text {
+            font-size: 32px;
+            font-weight: 700;
+            text-anchor: middle;
+            dominant-baseline: middle;
+            fill: #e0e0e0;
+        }
+
+        .gauge-unit {
+            font-size: 14px;
+            text-anchor: middle;
+            dominant-baseline: middle;
+            fill: #a0a0b0;
+        }
+
+        .gauge-gear {
+            font-size: 16px;
+            font-weight: 600;
+            text-anchor: middle;
+            dominant-baseline: middle;
+            fill: #4287f5;
+            text-transform: uppercase;
+        }
+
+        .grid-full-width {
+            grid-column: 1 / -1;
+        }
+
+        .nav-button {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #4287f5, #8b5cf6);
+            border: none;
+            color: white;
+            font-size: 24px;
+            cursor: pointer;
+            box-shadow: 0 4px 20px rgba(66, 135, 245, 0.4);
+            transition: all 0.3s ease;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .nav-button:hover {
+            transform: scale(1.1);
+            box-shadow: 0 6px 30px rgba(66, 135, 245, 0.6);
+        }
+
+        .nav-button:active {
+            transform: scale(0.95);
+        }
+
+        .page {
+            display: none;
+        }
+
+        .page.active {
+            display: grid;
+        }
+
+        .vehicle-state {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .state-item {
+            background: rgba(50, 50, 80, 0.5);
+            padding: 12px 16px;
+            border-radius: 8px;
+            border-left: 3px solid #4287f5;
+            transition: all 0.3s ease;
+        }
+
+        .state-item.active {
+            background: rgba(66, 135, 245, 0.15);
+            border-left-color: #10b981;
+        }
+
+        .state-label {
+            font-size: 12px;
+            color: #a0a0b0;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .state-value {
+            font-size: 18px;
+            font-weight: 600;
+            color: #e0e0e0;
+        }
+
+        .state-value.inactive {
+            color: #606080;
+        }
+
+        .bar-container {
+            margin-bottom: 12px;
+        }
+
+        .bar-label {
+            font-size: 12px;
+            color: #a0a0b0;
+            margin-bottom: 6px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .bar-label-value {
+            font-weight: 600;
+            color: #e0e0e0;
+        }
+
+        .bar {
+            height: 8px;
+            background: rgba(50, 50, 80, 0.8);
+            border-radius: 4px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4287f5, #8b5cf6);
+            border-radius: 4px;
+            transition: width 0.3s ease;
+            box-shadow: 0 0 12px rgba(66, 135, 245, 0.5);
+        }
+
+        .motor-diagram {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+
+        .motor-item {
+            background: rgba(50, 50, 80, 0.5);
+            padding: 12px;
+            border-radius: 8px;
+            text-align: center;
+            border: 2px solid rgba(100, 150, 255, 0.2);
+            transition: all 0.3s ease;
+        }
+
+        .motor-item.active {
+            border-color: #10b981;
+            background: rgba(16, 185, 129, 0.1);
+        }
+
+        .motor-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #e0e0e0;
+            margin: 8px 0;
+        }
+
+        .motor-label {
+            font-size: 12px;
+            color: #a0a0b0;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .sensor-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+        }
+
+        .sensor-card {
+            background: rgba(50, 50, 80, 0.5);
+            padding: 12px;
+            border-radius: 8px;
+            border: 1px solid rgba(100, 150, 255, 0.2);
+        }
+
+        .sensor-name {
+            font-size: 11px;
+            color: #a0a0b0;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .sensor-value {
+            font-size: 18px;
+            font-weight: 600;
+            color: #e0e0e0;
+            margin-bottom: 2px;
+        }
+
+        .sensor-unit {
+            font-size: 10px;
+            color: #808090;
+        }
+
+        .raw-data-container {
+            height: calc(100vh - 120px);
+            overflow-y: auto;
+        }
+
+        .topic-card {
+            background: rgba(30, 30, 50, 0.6);
+            border: 1px solid rgba(100, 150, 255, 0.2);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 12px;
+            transition: all 0.3s ease;
+        }
+
+        .topic-card:hover {
+            border-color: rgba(100, 150, 255, 0.4);
+            background: rgba(30, 30, 50, 0.8);
+        }
+
+        .topic-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(100, 150, 255, 0.2);
+        }
+
+        .topic-name {
+            font-size: 14px;
+            font-weight: 600;
+            color: #4287f5;
+            font-family: 'Courier New', monospace;
+        }
+
+        .topic-type {
+            font-size: 11px;
+            color: #8b5cf6;
+            font-family: 'Courier New', monospace;
+        }
+
+        .topic-timestamp {
+            font-size: 10px;
+            color: #a0a0b0;
+        }
+
+        .topic-data {
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: #e0e0e0;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 8px;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .no-data {
+            text-align: center;
+            color: #a0a0b0;
+            padding: 40px;
+            font-size: 14px;
+        }
+
+        .connection-error {
+            grid-column: 1 / -1;
+            padding: 16px;
+            background: rgba(239, 68, 68, 0.1);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            border-radius: 8px;
+            color: #fca5a5;
+            text-align: center;
+            display: none;
+        }
+
+        .connection-error.show {
+            display: block;
+            animation: slideDown 0.3s ease;
+        }
+
+        @keyframes slideDown {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .grid-2-cols {
+            grid-column: span 2;
+        }
+
+        .grid-1-col {
+            grid-column: span 1;
+        }
+
+        .vehicle-control-card {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 16px 24px;
+        }
+
+        .control-mode-display {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .control-mode-label {
+            font-size: 14px;
+            color: #a0a0b0;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .control-mode-value {
+            font-size: 24px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            text-shadow: 0 0 20px currentColor;
+            transition: all 0.3s ease;
+        }
+
+        .control-mode-value.state-EXTERNAL {
+            color: #10b981;
+        }
+
+        .control-mode-value.state-MANUAL {
+            color: #fbbf24;
+        }
+
+        .control-mode-value.state-EHB_ERROR,
+        .control-mode-value.state-IMMOBILIZED {
+            color: #ef4444;
+        }
+
+        .mode-button {
+            padding: 12px 32px;
+            background: linear-gradient(135deg, #10b981, #059669);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+            white-space: nowrap;
+        }
+
+        .mode-button:hover:not(:disabled) {
+            background: linear-gradient(135deg, #059669, #047857);
+            box-shadow: 0 6px 16px rgba(16, 185, 129, 0.5);
+            transform: translateY(-2px);
+        }
+
+        .mode-button:active:not(:disabled) {
+            transform: translateY(0);
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+        }
+
+        .mode-button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .mode-button.hidden {
+            display: none;
+        }
+
+        @media (max-width: 1920px) {
+            .dashboard {
+                grid-template-columns: 1fr 1fr;
+                grid-template-rows: auto 1fr 1fr 1fr;
+            }
+
+            .header {
+                grid-column: 1 / -1;
+            }
+        }
+
+        @media (max-width: 1024px) {
+            .dashboard {
+                grid-template-columns: 1fr;
+                grid-template-rows: auto auto auto auto auto auto;
+            }
+
+            .header {
+                grid-column: 1;
+            }
+
+            .grid-2-cols {
+                grid-column: 1;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="connection-error" id="connectionError">
+        ⚠️ Disconnected from vehicle data stream
+    </div>
+
+    <div class="header">
+        <h1>⚡ AMNIS</h1>
+        <div class="status-indicator">
+            <div class="status-dot" id="statusDot"></div>
+            <span id="statusText">Connected</span>
+        </div>
+    </div>
+
+    <!-- Page 1: Main View -->
+    <div class="dashboard page active main-view" id="mainPage">
+        <!-- Throttle Gauge with Gear -->
+        <div class="card grid-1-col">
+            <div class="card-title">Throttle</div>
+            <div class="gauge-container">
+                <svg class="gauge" viewBox="0 0 200 200">
+                    <defs>
+                        <linearGradient id="gaugeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#4287f5;stop-opacity:1" />
+                            <stop offset="100%" style="stop-color:#8b5cf6;stop-opacity:1" />
+                        </linearGradient>
+                    </defs>
+                    <circle class="gauge-arc" cx="100" cy="100" r="80" />
+                    <circle class="gauge-value" id="throttleArc" cx="100" cy="100" r="80" />
+                    <text class="gauge-text" id="throttleValue" x="100" y="85">0</text>
+                    <text class="gauge-unit" x="100" y="105">%</text>
+                    <text class="gauge-gear" id="gearDisplay" x="100" y="130">N</text>
+                </svg>
+            </div>
+        </div>
+
+        <!-- Brake Gauge -->
+        <div class="card grid-1-col">
+            <div class="card-title">Brake</div>
+            <div class="gauge-container">
+                <svg class="gauge" viewBox="0 0 200 200">
+                    <defs>
+                        <linearGradient id="brakeGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+                            <stop offset="0%" style="stop-color:#ef4444;stop-opacity:1" />
+                            <stop offset="100%" style="stop-color:#dc2626;stop-opacity:1" />
+                        </linearGradient>
+                    </defs>
+                    <circle class="gauge-arc" cx="100" cy="100" r="80" style="stroke: rgba(239, 68, 68, 0.3);" />
+                    <circle class="gauge-value brake" id="brakeArc" cx="100" cy="100" r="80" />
+                    <text class="gauge-text" id="brakeValue" x="100" y="85">0</text>
+                    <text class="gauge-unit" x="100" y="105">%</text>
+                    <text class="gauge-unit" x="100" y="130" style="fill: #ef4444;">PRESSURE</text>
+                </svg>
+            </div>
+        </div>
+
+        <!-- Vehicle Control Mode -->
+        <div class="card grid-full-width">
+            <div class="vehicle-control-card">
+                <div class="control-mode-display">
+                    <span class="control-mode-label">Control Mode:</span>
+                    <span class="control-mode-value" id="vehicleStateValue">UNKNOWN</span>
+                </div>
+                <button class="mode-button hidden" id="switchToExternalBtn" onclick="switchToExternal()">
+                    ↻ Switch to External
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Page 2: Raw Data View -->
+    <div class="dashboard page details-view" id="rawDataPage">
+        <div class="card" style="grid-column: 1 / -1;">
+            <div class="card-title">📡 Raw Topic Data</div>
+            <div class="raw-data-container" id="rawDataContainer">
+                <div class="no-data">Waiting for data...</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Navigation Button -->
+    <button class="nav-button" id="navButton" onclick="togglePage()">📡</button>
+
+    <script>
+        // Configuration
+        const DASHBOARD_CONFIG = {
+            // WebSocket URL - modify if running on different host/port
+            // For local file access, use 'ws://localhost:8765'
+            // For HTTP served files, leave blank to auto-detect from current hostname
+            ws_url: null, // null = auto-detect, or set to 'ws://your-robot-ip:8765'
+        };
+
+        // Global reference to dashboard instance
+        let dashboardInstance = null;
+
+        // Page navigation
+        let currentPage = 'main';
+        function togglePage() {
+            const mainPage = document.getElementById('mainPage');
+            const rawDataPage = document.getElementById('rawDataPage');
+            const navButton = document.getElementById('navButton');
+            
+            if (currentPage === 'main') {
+                mainPage.classList.remove('active');
+                rawDataPage.classList.add('active');
+                navButton.textContent = '🏠';
+                currentPage = 'raw';
+            } else {
+                rawDataPage.classList.remove('active');
+                mainPage.classList.add('active');
+                navButton.textContent = '📡';
+                currentPage = 'main';
+            }
+        }
+
+        class VehicleDashboard {
+            constructor() {
+                this.ws = null;
+                this.topicData = {};
+                this.currentVehicleState = null;
+                this.canSwitchToExternal = false;
+                this.connect();
+                this.initEventListeners();
+            }
+
+            connect() {
+                try {
+                    // Determine WebSocket URL
+                    let wsUrl = DASHBOARD_CONFIG.ws_url;
+                    
+                    if (!wsUrl) {
+                        // Auto-detect: use current hostname if available, else localhost
+                        const hostname = window.location.hostname || 'localhost';
+                        wsUrl = `ws://${hostname}:8765`;
+                    }
+                    
+                    console.log(`Attempting to connect to: ${wsUrl}`);
+                    this.ws = new WebSocket(wsUrl);
+
+                    this.ws.onopen = () => {
+                        console.log('Connected to vehicle data stream');
+                        this.setStatus(true);
+                        this.hideError();
+                    };
+
+                    this.ws.onmessage = (event) => {
+                        try {
+                            const message = JSON.parse(event.data);
+                            this.handleMessage(message);
+                        } catch (err) {
+                            console.error('Failed to parse message:', err);
+                        }
+                    };
+
+                    this.ws.onerror = (error) => {
+                        console.error('WebSocket error:', error);
+                        this.setStatus(false);
+                        this.showError();
+                    };
+
+                    this.ws.onclose = () => {
+                        console.log('Disconnected from vehicle data stream');
+                        this.setStatus(false);
+                        this.showError();
+                        // Attempt to reconnect every 3 seconds
+                        setTimeout(() => this.connect(), 3000);
+                    };
+                } catch (err) {
+                    console.error('Failed to initialize WebSocket:', err);
+                    this.setStatus(false);
+                    this.showError();
+                    setTimeout(() => this.connect(), 3000);
+                }
+            }
+
+            handleMessage(message) {
+                const { event, payload } = message;
+
+                if (event === 'snapshot') {
+                    // Initial snapshot when client connects
+                    if (payload.topics) {
+                        Object.values(payload.topics).forEach(topic => {
+                            this.updateTopic(topic);
+                        });
+                    }
+                } else if (event === 'batch_update') {
+                    // Batched periodic updates
+                    if (payload.topics) {
+                        Object.values(payload.topics).forEach(topic => {
+                            this.updateTopic(topic);
+                        });
+                    }
+                } else if (event === 'update') {
+                    // Single update
+                    this.updateTopic(payload);
+                } else if (event === 'topic_added') {
+                    console.log(`New topic discovered: ${payload.topic} (${payload.type})`);
+                }
+            }
+
+            updateTopic(topic) {
+                const { topic: name, type, data } = topic;
+
+                // Store the raw data with timestamp
+                this.topicData[name] = { 
+                    type, 
+                    data,
+                    timestamp: new Date().toISOString(),
+                    received_stamp: topic.received_stamp,
+                    header_stamp: topic.header_stamp
+                };
+
+                // Update raw data view
+                this.updateRawDataView();
+
+                // Parse and visualize based on message type
+                if (type.includes('JoystickCommand')) {
+                    this.updateJoystickCommand(data);
+                } else if (type.includes('PowertrainCommand')) {
+                    this.updatePowertrainCommand(data);
+                } else if (type.includes('SteerCommand')) {
+                    this.updateSteerCommand(data);
+                } else if (type.includes('BrakeCommand')) {
+                    this.updateBrakeCommand(data);
+                } else if (type.includes('VehicleState')) {
+                    console.log('VehicleState message detected:', name, type, data);
+                    this.updateVehicleState(data);
+                }
+            }
+
+            updateRawDataView() {
+                const container = document.getElementById('rawDataContainer');
+                if (!container) return;
+
+                if (Object.keys(this.topicData).length === 0) {
+                    container.innerHTML = '<div class="no-data">No data received yet...</div>';
+                    return;
+                }
+
+                let html = '';
+                const sortedTopics = Object.entries(this.topicData).sort((a, b) => 
+                    a[0].localeCompare(b[0])
+                );
+
+                for (const [topicName, topicInfo] of sortedTopics) {
+                    const timestamp = topicInfo.timestamp || 'N/A';
+                    const receivedSec = topicInfo.received_stamp ? 
+                        `${topicInfo.received_stamp.sec}.${String(topicInfo.received_stamp.nanosec).padStart(9, '0')}` : 
+                        'N/A';
+                    
+                    html += `
+                        <div class="topic-card">
+                            <div class="topic-header">
+                                <div>
+                                    <div class="topic-name">${topicName}</div>
+                                    <div class="topic-type">${topicInfo.type}</div>
+                                </div>
+                                <div style="text-align: right;">
+                                    <div class="topic-timestamp">Received: ${receivedSec}s</div>
+                                    <div class="topic-timestamp">${timestamp}</div>
+                                </div>
+                            </div>
+                            <div class="topic-data">${JSON.stringify(topicInfo.data, null, 2)}</div>
+                        </div>
+                    `;
+                }
+
+                container.innerHTML = html;
+            }
+
+            updateJoystickCommand(data) {
+                // data.throttle, data.steer, data.gear, data.brake, data.cmd
+                if ('throttle' in data) {
+                    const throttle = Math.max(0, Math.min(100, data.throttle * 100));
+                    this.updateGauge('throttleArc', 'throttleValue', throttle);
+                }
+
+                if ('brake' in data) {
+                    const brake = Math.max(0, Math.min(100, data.brake * 100));
+                    this.updateGauge('brakeArc', 'brakeValue', brake);
+                }
+
+                if ('gear' in data) {
+                    const gearMap = { '-1': 'R', '0': 'N', '1': 'D' };
+                    const gearText = gearMap[String(data.gear)] || 'U';
+                    const gearElement = document.getElementById('gearDisplay');
+                    if (gearElement) {
+                        gearElement.textContent = gearText;
+                    }
+                }
+            }
+
+            updatePowertrainCommand(data) {
+                // Powertrain details not shown on main page
+            }
+
+            updateSteerCommand(data) {
+                // Steer details not shown on main page
+            }
+
+            updateBrakeCommand(data) {
+                // Brake details not shown on main page
+            }
+
+            updateVehicleState(data) {
+                console.log('Vehicle state update received:', data);
+                
+                // Update current state tracking
+                if ('state' in data) {
+                    this.currentVehicleState = data.state;
+                    
+                    // Update the UI
+                    const stateElement = document.getElementById('vehicleStateValue');
+                    if (stateElement) {
+                        stateElement.textContent = data.state;
+                        
+                        // Remove all state classes
+                        stateElement.classList.remove('state-EXTERNAL', 'state-MANUAL', 'state-EHB_ERROR', 'state-IMMOBILIZED');
+                        
+                        // Add current state class for color coding
+                        stateElement.classList.add(`state-${data.state}`);
+                        
+                        console.log('Updated vehicle state display to:', data.state);
+                    } else {
+                        console.error('Vehicle state element not found!');
+                    }
+                }
+                
+                // Update button visibility
+                if ('can_switch_to_external' in data) {
+                    this.canSwitchToExternal = data.can_switch_to_external;
+                    const button = document.getElementById('switchToExternalBtn');
+                    if (button) {
+                        if (this.canSwitchToExternal && this.currentVehicleState === 'MANUAL') {
+                            button.classList.remove('hidden');
+                            console.log('Show switch to external button');
+                        } else {
+                            button.classList.add('hidden');
+                            console.log('Hide switch to external button');
+                        }
+                    }
+                }
+            }
+
+            sendModeCommand(targetState) {
+                if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+                    console.error('WebSocket not connected, cannot send mode command');
+                    return;
+                }
+                
+                const command = {
+                    event: 'mode_command',
+                    payload: {
+                        target_state: targetState
+                    }
+                };
+                
+                console.log('Sending mode command:', command);
+                this.ws.send(JSON.stringify(command));
+                
+                // Disable button temporarily to prevent spamming
+                const button = document.getElementById('switchToExternalBtn');
+                if (button) {
+                    button.disabled = true;
+                    setTimeout(() => {
+                        button.disabled = false;
+                    }, 2000);
+                }
+            }
+
+            updateGauge(arcId, valueId, percentage) {
+                const circumference = 2 * Math.PI * 80; // 502.65
+                const offset = circumference * (1 - percentage / 100);
+                const arc = document.getElementById(arcId);
+                if (arc) {
+                    arc.style.strokeDashoffset = offset;
+                }
+                const value = document.getElementById(valueId);
+                if (value) {
+                    value.textContent = Math.round(percentage);
+                }
+            }
+
+            setStatus(connected) {
+                const statusDot = document.getElementById('statusDot');
+                const statusText = document.getElementById('statusText');
+                if (connected) {
+                    statusDot.classList.remove('disconnected');
+                    statusText.textContent = 'Connected';
+                } else {
+                    statusDot.classList.add('disconnected');
+                    statusText.textContent = 'Disconnected';
+                }
+            }
+
+            showError() {
+                document.getElementById('connectionError').classList.add('show');
+            }
+
+            hideError() {
+                document.getElementById('connectionError').classList.remove('show');
+            }
+
+            initEventListeners() {
+                // Keyboard controls for testing (optional)
+                document.addEventListener('keydown', (e) => {
+                    // Can add keyboard controls here
+                });
+            }
+        }
+
+        // Function to switch to external mode (called by button)
+        function switchToExternal() {
+            if (dashboardInstance) {
+                dashboardInstance.sendModeCommand('EXTERNAL');
+            }
+        }
+
+        // Initialize dashboard when page loads
+        window.addEventListener('load', () => {
+            dashboardInstance = new VehicleDashboard();
+        });
+    </script>
+</body>
+</html>

@@ -21,6 +21,9 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/PowertrainCommand.msg"
   "msg/SteerCommand.msg"
   "msg/BrakeCommand.msg"
+  "msg/SensorData.msg"
+  "msg/VehicleState.msg"
+  "msg/ModeCommand.msg"
   DEPENDENCIES sensor_msgs
 )
 
@@ -72,6 +75,12 @@ install(PROGRAMS
   amnis_controller/powertrain_controller_node.py
   DESTINATION lib/${PROJECT_NAME}
   RENAME powertrain_controller_node
+)
+
+install(PROGRAMS
+  amnis_controller/sensor_reader_node.py
+  DESTINATION lib/${PROJECT_NAME}
+  RENAME sensor_reader_node
 )
 
 install(

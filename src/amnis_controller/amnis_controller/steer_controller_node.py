@@ -39,14 +39,20 @@ class SteerControllerNode(Node):
         self.declare_parameter('diagnostic_topic', 'steer_diagnostics')
         
         # Hardware configuration
-        self.declare_parameter('i2c_bus', 1)  # Jetson Orin typically uses bus 1 or 8
+        self.declare_parameter('i2c_bus', 1)  # Raspberry Pi typically uses bus 1
         self.declare_parameter('i2c_address', 0x58)  # H-bridge I2C address
         self.declare_parameter('max_power', 100)
         self.declare_parameter('mock_mode', False)  # For testing without hardware
         
+        # Pigpio connection configuration (for remote Raspberry Pi)
+        self.declare_parameter('pigpio_host', 'localhost')
+        self.declare_parameter('pigpio_port', 8888)
+        
         # Safety parameters
         self.declare_parameter('command_timeout_sec', 0.5)  # Stop if no command
         self.declare_parameter('deadzone', 0.05)  # Ignore small commands
+        self.declare_parameter('auto_stop_on_error', True)  # Auto-stop on I2C errors
+        self.declare_parameter('error_threshold', 3)  # Errors before auto-stop
         
         # Control parameters
         self.declare_parameter('update_rate_hz', 50.0)  # I2C update rate
@@ -64,8 +70,12 @@ class SteerControllerNode(Node):
         i2c_address = self.get_parameter('i2c_address').value
         max_power = self.get_parameter('max_power').value
         mock_mode = self.get_parameter('mock_mode').value
+        pigpio_host = self.get_parameter('pigpio_host').value
+        pigpio_port = self.get_parameter('pigpio_port').value
         self.command_timeout = self.get_parameter('command_timeout_sec').value
         self.deadzone = self.get_parameter('deadzone').value
+        auto_stop_on_error = self.get_parameter('auto_stop_on_error').value
+        error_threshold = self.get_parameter('error_threshold').value
         update_rate = self.get_parameter('update_rate_hz').value
         self.steer_scale = self.get_parameter('steer_to_power_scale').value
         self.publish_diagnostics = self.get_parameter('publish_diagnostics').value
@@ -77,7 +87,11 @@ class SteerControllerNode(Node):
             i2c_bus=i2c_bus,
             i2c_address=i2c_address,
             max_power=max_power,
-            mock_mode=mock_mode
+            mock_mode=mock_mode,
+            pigpio_host=pigpio_host,
+            pigpio_port=pigpio_port,
+            auto_stop_on_error=auto_stop_on_error,
+            error_threshold=error_threshold,
         )
         
         if not self.driver.is_connected():
@@ -91,6 +105,7 @@ class SteerControllerNode(Node):
         self._current_direction = 0
         self._current_speed = 0
         self._is_timed_out = False
+        self._last_error_count = 0
         
         # Create subscriber
         self.subscription = self.create_subscription(
@@ -158,7 +173,7 @@ class SteerControllerNode(Node):
             steer = 0.0
         
         # Convert steer [-1, 1] to direction and speed
-        # For steering: positive = right (1), negative = left (2)
+        # For steering: positive = right (2), negative = left (1)
         if steer > 0:
             direction = 2  # Right
             speed = int(steer * self.steer_scale)
@@ -169,12 +184,23 @@ class SteerControllerNode(Node):
             direction = 0  # Stop
             speed = 0
         
-        # Send to hardware
+        # Send to hardware - simple, no blocking
         success = self.driver.set_direction_speed(direction, speed)
         
         if success:
             self._current_direction = direction
             self._current_speed = speed
+        
+        # Detect new errors (just for logging)
+        current_errors = self.driver.get_error_count()
+        if current_errors > self._last_error_count:
+            new_errors = current_errors - self._last_error_count
+            consecutive = self.driver.get_consecutive_errors()
+            if consecutive >= 3:
+                self.get_logger().warning(
+                    f"I2C errors: {consecutive} consecutive (likely hit steering limit)"
+                )
+        self._last_error_count = current_errors
         
         # Periodic logging
         if self.verbose:
@@ -233,6 +259,7 @@ class SteerControllerNode(Node):
             f"connected={self.driver.is_connected()}, "
             f"success={success}, "
             f"errors={self.driver.get_error_count()}, "
+            f"consecutive_errors={self.driver.get_consecutive_errors()}, "
             f"timed_out={self._is_timed_out}"
         )
         self.diagnostic_pub.publish(msg)

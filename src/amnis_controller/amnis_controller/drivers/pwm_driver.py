@@ -1,33 +1,36 @@
-"""PWM driver for powertrain throttle control via GPIO.
+"""PWM driver for powertrain throttle control via remote pigpio.
 
 This module provides a hardware abstraction layer for controlling the vehicle's
 throttle via PWM (Pulse Width Modulation) on a GPIO pin. It handles low-level
-GPIO communication, PWM signal generation, and error handling.
+GPIO communication through a remote Raspberry Pi running pigpio daemon.
 
-Compatible with Jetson Orin and other Linux systems with GPIO support.
+Compatible with any system that can connect to a pigpiod daemon over network.
 """
 
 from typing import Optional
 import logging
+from .pigpio_connection import PigpioConnection
 
 
 class PWMDriver:
-    """Hardware abstraction for throttle control via PWM on GPIO.
+    """Hardware abstraction for throttle control via PWM on remote GPIO.
     
     This class handles:
-    - GPIO initialization and cleanup
+    - Remote GPIO initialization and cleanup via pigpio
     - PWM signal generation for throttle control
     - Safety limits and error handling
     - Mock mode for testing without hardware
     
     PWM Configuration:
-    - Pin: Configurable (default pin 15)
+    - Pin: Configurable (default BCM GPIO 22 = physical pin 15)
     - Frequency: 1kHz (typical for motor controllers)
     - Duty cycle: 0-100% (maps to throttle 0.0-1.0)
+    
+    Note: pigpio uses BCM (Broadcom) pin numbering, not physical pin numbers.
     """
 
     # PWM configuration
-    DEFAULT_PWM_PIN = 15  # Physical pin number
+    DEFAULT_PWM_PIN = 22  # BCM GPIO 22 (physical pin 15 on Raspberry Pi)
     DEFAULT_PWM_FREQUENCY = 1000  # 1kHz
     
     def __init__(
@@ -36,75 +39,95 @@ class PWMDriver:
         pwm_frequency: int = DEFAULT_PWM_FREQUENCY,
         max_throttle: float = 1.0,
         mock_mode: bool = False,
+        pigpio_host: Optional[str] = None,
+        pigpio_port: Optional[int] = None,
     ):
         """Initialize the PWM driver.
         
         Args:
-            pwm_pin: GPIO pin number for PWM output (physical pin numbering)
+            pwm_pin: GPIO pin number for PWM output (BCM numbering, default 22 = physical pin 15)
             pwm_frequency: PWM frequency in Hz (default 1kHz)
             max_throttle: Maximum throttle value 0.0-1.0 (default 1.0 = 100%)
             mock_mode: If True, simulate GPIO without actual hardware
+            pigpio_host: IP address/hostname of remote Raspberry Pi (optional)
+            pigpio_port: pigpiod port (optional, default 8888)
         """
         self.pwm_pin = pwm_pin
         self.pwm_frequency = pwm_frequency
         self.max_throttle = max(0.0, min(1.0, max_throttle))  # Clamp to [0, 1]
         self.mock_mode = mock_mode
         
-        self._gpio = None
-        self._pwm: Optional[object] = None
+        self._pigpio_conn = PigpioConnection()
+        self._pi = None
         self._connected = False
         self._last_throttle = 0.0
         self._error_count = 0
         
         self.logger = logging.getLogger('PWMDriver')
         
+        # Configure pigpio connection
+        if pigpio_host is not None or pigpio_port is not None or mock_mode:
+            self._pigpio_conn.configure(
+                host=pigpio_host,
+                port=pigpio_port,
+                mock_mode=mock_mode
+            )
+        
         # Try to initialize GPIO
         self._initialize_gpio()
     
     def _initialize_gpio(self) -> bool:
-        """Initialize GPIO and PWM.
+        """Initialize GPIO and PWM via remote pigpio.
         
         Returns:
             True if successful, False otherwise
         """
-        if self.mock_mode:
+        if self.mock_mode or self._pigpio_conn.is_mock_mode():
             self.logger.info("Running in MOCK mode - no actual GPIO communication")
             self._connected = True
             return True
         
         try:
-            # Try to import Jetson.GPIO
-            import Jetson.GPIO as GPIO
-            self._gpio = GPIO
+            # Get pigpio connection
+            self._pi = self._pigpio_conn.get_pi()
+            if self._pi is None:
+                self.logger.error("Failed to get pigpio connection")
+                self._connected = False
+                return False
             
-            # Set pin numbering mode to BOARD (physical pin numbers)
-            self._gpio.setmode(self._gpio.BOARD)
+            # Import pigpio for constants
+            import pigpio
             
-            # Setup PWM pin
-            self._gpio.setup(self.pwm_pin, self._gpio.OUT)
+            # Set pin as output
+            self._pi.set_mode(self.pwm_pin, pigpio.OUTPUT)
             
-            # Create PWM object
-            self._pwm = self._gpio.PWM(self.pwm_pin, self.pwm_frequency)
+            # Set PWM frequency
+            actual_freq = self._pi.set_PWM_frequency(self.pwm_pin, self.pwm_frequency)
+            if actual_freq != self.pwm_frequency:
+                self.logger.warning(
+                    f"Requested frequency {self.pwm_frequency}Hz, got {actual_freq}Hz"
+                )
             
-            # Start PWM with 0% duty cycle (no throttle)
-            self._pwm.start(0)
+            # Start with 0% duty cycle (no throttle)
+            self._pi.set_PWM_dutycycle(self.pwm_pin, 0)
             
             self._connected = True
             self.logger.info(
-                f"GPIO PWM initialized: pin={self.pwm_pin}, "
-                f"frequency={self.pwm_frequency}Hz"
+                f"Remote GPIO PWM initialized: BCM GPIO {self.pwm_pin}, "
+                f"frequency={actual_freq}Hz, host={self._pigpio_conn.get_host()}"
             )
             return True
             
         except ImportError:
             self.logger.error(
-                "Jetson.GPIO not installed. Install with: pip install Jetson.GPIO"
+                "pigpio library not installed. Install with: pip install pigpio"
             )
             self._connected = False
             return False
         except Exception as e:
-            self.logger.error(f"Failed to initialize GPIO: {e}")
+            self.logger.error(f"Failed to initialize remote GPIO: {e}")
             self._connected = False
+            self._pigpio_conn.increment_error_count()
             return False
     
     def is_connected(self) -> bool:
@@ -113,7 +136,10 @@ class PWMDriver:
         Returns:
             True if connected, False otherwise
         """
-        return self._connected
+        if self.mock_mode or self._pigpio_conn.is_mock_mode():
+            return self._connected
+        
+        return self._connected and self._pigpio_conn.is_connected()
     
     def set_throttle(self, throttle: float) -> bool:
         """Set throttle value.
@@ -155,23 +181,37 @@ class PWMDriver:
         Returns:
             True if successful, False otherwise
         """
-        if self.mock_mode:
+        if self.mock_mode or self._pigpio_conn.is_mock_mode():
             self.logger.debug(f"MOCK: Setting PWM duty cycle to {duty_cycle:.1f}%")
             return True
         
-        if not self._connected or self._pwm is None:
+        if not self._connected:
             self.logger.warning("GPIO not connected, attempting to reconnect...")
             self._initialize_gpio()
             if not self._connected:
                 return False
         
         try:
-            self._pwm.ChangeDutyCycle(duty_cycle)
-            self.logger.debug(f"PWM duty cycle set to {duty_cycle:.1f}%")
+            # Ensure we have a valid connection
+            self._pi = self._pigpio_conn.get_pi()
+            if self._pi is None:
+                self.logger.error("Lost pigpio connection")
+                self._connected = False
+                self._pigpio_conn.increment_error_count()
+                return False
+            
+            # Convert percentage (0-100) to pigpio duty cycle (0-255)
+            pigpio_duty = int((duty_cycle / 100.0) * 255.0)
+            pigpio_duty = max(0, min(255, pigpio_duty))  # Clamp to valid range
+            
+            self._pi.set_PWM_dutycycle(self.pwm_pin, pigpio_duty)
+            self.logger.debug(f"PWM duty cycle set to {duty_cycle:.1f}% (pigpio: {pigpio_duty}/255)")
             return True
+            
         except Exception as e:
             self.logger.error(f"Failed to set PWM duty cycle: {e}")
             self._connected = False
+            self._pigpio_conn.increment_error_count()
             return False
     
     def stop(self) -> bool:
@@ -206,6 +246,8 @@ class PWMDriver:
         """Close GPIO connection and cleanup.
         
         Sends a final zero throttle command and cleans up GPIO resources.
+        Note: This doesn't disconnect the shared pigpio connection, as other
+        drivers may still be using it.
         """
         try:
             self.logger.info("Stopping PWM driver...")
@@ -213,24 +255,17 @@ class PWMDriver:
             # Send final stop command
             self.set_throttle(0.0)
             
-            # Stop PWM
-            if self._pwm is not None and not self.mock_mode:
-                try:
-                    self._pwm.stop()
-                    self.logger.info("PWM stopped")
-                except Exception as e:
-                    self.logger.error(f"Error stopping PWM: {e}")
-            
-            # Cleanup GPIO
-            if self._gpio is not None and not self.mock_mode:
-                try:
-                    self._gpio.cleanup()
-                    self.logger.info("GPIO cleaned up")
-                except Exception as e:
-                    self.logger.error(f"Error cleaning up GPIO: {e}")
+            # Set pin to low state
+            if not self.mock_mode and not self._pigpio_conn.is_mock_mode():
+                if self._pi is not None:
+                    try:
+                        self._pi.set_PWM_dutycycle(self.pwm_pin, 0)
+                        self.logger.info("PWM stopped")
+                    except Exception as e:
+                        self.logger.error(f"Error stopping PWM: {e}")
                     
         except Exception as e:
             self.logger.error(f"Error during cleanup: {e}")
         
         self._connected = False
-
+        self._pi = None
